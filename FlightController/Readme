@@ -1,0 +1,4 @@
+This is the flight controller code for use with the teensy 3.5. Currently uses no EEPROM data and needs work with the autoleveling capability due to drift. 
+The ESC pulses calculated from reciever inputs and gyro measurements seem to impact the proper motors.
+
+Also, input ranges for the ESCs may need to be adjusted to make them all spin at the same throttle inputs. They can be programmed using BLHeli Suite.
