@@ -1,0 +1,2 @@
+This code is to test the hardware function of the quadcopter using the teensy 3.5.
+It will output IMU measurements, reciever inputs, ESC pulse time, and spin the motors based on an offset from the recieved signal.
