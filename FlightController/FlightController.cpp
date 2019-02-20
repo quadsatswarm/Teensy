@@ -25,7 +25,7 @@
  int escPulseTime = 4000;
 
 //Auto level on (true) or off (false)
-boolean auto_level = true;                 
+boolean auto_level = false;                 
 
 //////////////////////////////////////////////////////////////////////////
 //PID gain and limit settings
@@ -33,7 +33,7 @@ boolean auto_level = true;
 
 float pid_p_gain_roll = 1.3;               //Gain setting for the roll P-controller
 float pid_i_gain_roll = 0.02;              //Gain setting for the roll I-controller
-float pid_d_gain_roll = 5  ;              //Gain setting for the roll D-controller
+float pid_d_gain_roll = 3;              //Gain setting for the roll D-controller
 int pid_max_roll = 400;                    //Maximum output of the PID-controller (+/-)
 
 float pid_p_gain_pitch = pid_p_gain_roll;  //Gain setting for the pitch P-controller.
@@ -41,14 +41,14 @@ float pid_i_gain_pitch = pid_i_gain_roll;  //Gain setting for the pitch I-contro
 float pid_d_gain_pitch = pid_d_gain_roll;  //Gain setting for the pitch D-controller.
 int pid_max_pitch = pid_max_roll;          //Maximum output of the PID-controller (+/-)
 
-float pid_p_gain_yaw = 2;                //Gain setting for the pitch P-controller. //4.0
-float pid_i_gain_yaw = 0.005;               //Gain setting for the pitch I-controller. //0.02
+float pid_p_gain_yaw = 1;                //Gain setting for the pitch P-controller. //4.0
+float pid_i_gain_yaw = 0.0;               //Gain setting for the pitch I-controller. //0.02
 float pid_d_gain_yaw = 0;                //Gain setting for the pitch D-controller.
 int pid_max_yaw = 400;                     //Maximum output of the PID-controller (+/-)
 
 
 int pidDiv = 5;                           // Adjust scaling for rad/s response (500-8)/pidDiv
-int dtimer = 3500;
+int dtimer = 2000;
 //////////////////////////////////////////////////////////////////////////
 // Pins
 //////////////////////////////////////////////////////////////////////////
@@ -659,8 +659,6 @@ void loop() {
   //escPulseOutput();
 
   displayVals();
-
-  //delayMicroseconds(dtimer);
 
    loop_timer = elapsedTime  - timer1;
 }
