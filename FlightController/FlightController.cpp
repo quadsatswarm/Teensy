@@ -1,6 +1,6 @@
 #include <Arduino.h>
 #include <Wire.h>
-#include <EEPROM.h>
+//#include <EEPROM.h>
 
 
 
@@ -25,15 +25,15 @@
  int escPulseTime = 4000;
 
 //Auto level on (true) or off (false)
-boolean auto_level = false;                 
+boolean auto_level = true;                 
 
 //////////////////////////////////////////////////////////////////////////
 //PID gain and limit settings
 //////////////////////////////////////////////////////////////////////////
 
-float pid_p_gain_roll = 1.3;               //Gain setting for the roll P-controller
+float pid_p_gain_roll = 1;                 //Gain setting for the roll P-controller
 float pid_i_gain_roll = 0.02;              //Gain setting for the roll I-controller
-float pid_d_gain_roll = 3;              //Gain setting for the roll D-controller
+float pid_d_gain_roll = 5;                 //Gain setting for the roll D-controller
 int pid_max_roll = 400;                    //Maximum output of the PID-controller (+/-)
 
 float pid_p_gain_pitch = pid_p_gain_roll;  //Gain setting for the pitch P-controller.
@@ -41,14 +41,15 @@ float pid_i_gain_pitch = pid_i_gain_roll;  //Gain setting for the pitch I-contro
 float pid_d_gain_pitch = pid_d_gain_roll;  //Gain setting for the pitch D-controller.
 int pid_max_pitch = pid_max_roll;          //Maximum output of the PID-controller (+/-)
 
-float pid_p_gain_yaw = 1;                //Gain setting for the pitch P-controller. //4.0
-float pid_i_gain_yaw = 0.0;               //Gain setting for the pitch I-controller. //0.02
-float pid_d_gain_yaw = 0;                //Gain setting for the pitch D-controller.
+float pid_p_gain_yaw = 1;                  //Gain setting for the pitch P-controller. //4.0
+float pid_i_gain_yaw = 0.02;               //Gain setting for the pitch I-controller. //0.02
+float pid_d_gain_yaw = 0;                  //Gain setting for the pitch D-controller.
 int pid_max_yaw = 400;                     //Maximum output of the PID-controller (+/-)
 
 
-int pidDiv = 5;                           // Adjust scaling for rad/s response (500-8)/pidDiv
-int dtimer = 2000;
+int pidDiv = 5;                            // Adjust scaling for rad/s response (500-8)/pidDiv
+int delayTimer = 3600;                        // Setup a delay timer in uS
+
 //////////////////////////////////////////////////////////////////////////
 // Pins
 //////////////////////////////////////////////////////////////////////////
@@ -66,6 +67,8 @@ int dtimer = 2000;
  int ch2 = 8;
  int ch3 = 14;
  int ch4 = 35;
+ int ch5 = 33;
+ int ch6 = 34;
 
 //////////////////////////////////////////////////////////////////////////
 // Variables
@@ -89,19 +92,22 @@ int dtimer = 2000;
  volatile unsigned long delta3 = 1500;
  unsigned long prev4 = 0;
  volatile unsigned long delta4 = 1500;
+ unsigned long prev5 = 0;
+ volatile unsigned long delta5= 1500;
+ unsigned long prev6= 0;
+ volatile unsigned long delta6= 1500;
+
+ int escPulse1PWM;
+ int escPulse2PWM;
+ int escPulse3PWM;
+ int escPulse4PWM;
 
  elapsedMicros elapsedTime;
  unsigned long escLoopTime = 0;
  unsigned long timer_channel_1 = 0;
 
 //////////////////////////////////////////////////////////////////////////
-// byte last_channel_1, last_channel_2, last_channel_3, last_channel_4;
- byte eeprom_data[36];
-// byte highByte, lowByte;
-// volatile int delta1, delta2, delta3, delta4;
-// int counter_channel_1, counter_channel_2, counter_channel_3, counter_channel_4, loop_counter;
-// int escPulse1, escPulse2, escPulse3, escPulse4;
-
+ //byte eeprom_data[36];
  int throttle, battery_voltage;
  int start = 0;
  float roll_level_adjust, pitch_level_adjust;
@@ -133,16 +139,6 @@ int dtimer = 2000;
  float timerMult2;
  long printTimer;
  unsigned long prevLoop =0;
- int offset = 0;
- long lastESC = 0;
-
- int escPulse1PWM;
- int escPulse2PWM;
- int escPulse3PWM;
- int escPulse4PWM;
-
-
-
 
 //////////////////////////////////////////////////////////////////////////
 // IMU Functions
@@ -157,12 +153,12 @@ void set_gyro_registers(){
 
     Wire.beginTransmission(gyro_address); //Start communication with the address found during search.
     Wire.write(0x1B); //We want to write to the GYRO_CONFIG register (1B hex)
-    Wire.write(0x08); //Set the register bits as 00001000 (500dps full scale)
+    Wire.write(0b00001000); //Set the register bits as 00001000 (500dps full scale)
     Wire.endTransmission(); //End the transmission with the gyro
 
     Wire.beginTransmission(gyro_address); //Start communication with the address found during search.
     Wire.write(0x1C); //We want to write to the ACCEL_CONFIG register (1A hex)
-    Wire.write(0x10); //Set the register bits as 00010000 (+/- 8g full scale range)
+    Wire.write(0b00010000); //Set the register bits as 00010000 (+/- 8g full scale range)
     Wire.endTransmission(); //End the transmission with the gyro
 
     //Let's perform a random register check to see if the values are written correct
@@ -176,9 +172,14 @@ void set_gyro_registers(){
       while(1)delay(10); //Stay in this loop for ever
     }
 
-    Wire.beginTransmission(gyro_address); //Start communication with the address found during search
-    Wire.write(0x1A); //We want to write to the CONFIG register (1A hex)
-    Wire.write(0x03); //Set the register bits as 00000011 (Set Digital Low Pass Filter to ~43Hz)
+   Wire.beginTransmission(gyro_address); //Start communication with the address found during search
+   Wire.write(0x1A); //We want to write to the CONFIG register (1A hex)
+   Wire.write(0b00000000); //Set the register bits as 00000011 (Set Digital Low Pass Filter to ~43Hz)
+   Wire.endTransmission(); //End the transmission with the gyro
+
+   Wire.beginTransmission(gyro_address); //Start communication with the address found during search
+   Wire.write(0x24);  // I2C Control
+   Wire.write(0b00001001);  // 500kHz
    Wire.endTransmission(); //End the transmission with the gyro
 }
 
@@ -195,31 +196,15 @@ void gyro_signalen(){
   GyY=Wire.read()<<8|Wire.read();  // 0x45 (GYRO_YOUT_H) & 0x46 (GYRO_YOUT_L)
   GyZ=Wire.read()<<8|Wire.read();  // 0x47 (GYRO_ZOUT_H) & 0x48 (GYRO_ZOUT_L)
 
-  gyro_roll = GyX-GyX_Cal;
-  gyro_pitch = GyY-GyY_Cal;
+  gyro_roll = GyY-GyY_Cal;
+  gyro_pitch = GyX-GyX_Cal;
   gyro_yaw = GyZ-GyZ_Cal;
 
   acc_x = AcX;
   acc_y = AcY;
   acc_z = AcZ;
-
-  // gyro_roll = gyro_axis[eeprom_data[28] & 0b00000011];                      //Set gyro_roll to the correct axis that was stored in the EEPROM.
-  // if(eeprom_data[28] & 0b10000000)gyro_roll *= -1;                          //Invert gyro_roll if the MSB of EEPROM bit 28 is set.
-  // gyro_pitch = gyro_axis[eeprom_data[29] & 0b00000011];                     //Set gyro_pitch to the correct axis that was stored in the EEPROM.
-  // if(eeprom_data[29] & 0b10000000)gyro_pitch *= -1;                         //Invert gyro_pitch if the MSB of EEPROM bit 29 is set.
-  // gyro_yaw = gyro_axis[eeprom_data[30] & 0b00000011];                       //Set gyro_yaw to the correct axis that was stored in the EEPROM.
-  // if(eeprom_data[30] & 0b10000000)gyro_yaw *= -1;                           //Invert gyro_yaw if the MSB of EEPROM bit 30 is set.
-
-  // acc_x = acc_axis[eeprom_data[29] & 0b00000011];                           //Set acc_x to the correct axis that was stored in the EEPROM.
-  // if(eeprom_data[29] & 0b10000000)acc_x *= -1;                              //Invert acc_x if the MSB of EEPROM bit 29 is set.
-  // acc_y = acc_axis[eeprom_data[28] & 0b00000011];                           //Set acc_y to the correct axis that was stored in the EEPROM.
-  // if(eeprom_data[28] & 0b10000000)acc_y *= -1;                              //Invert acc_y if the MSB of EEPROM bit 28 is set.
-  // acc_z = acc_axis[eeprom_data[30] & 0b00000011];                           //Set acc_z to the correct axis that was stored in the EEPROM.
-  // if(eeprom_data[30] & 0b10000000)acc_z *= -1;                              //Invert acc_z if the MSB of EEPROM bit 30 is set.
 }
  
-
-
 void calibrate_gyro(){
 
     GyX_Cal = 0;
@@ -247,11 +232,33 @@ void calibrate_gyro(){
   delay(100);
 }
 
+
+
+
 //////////////////////////////////////////////////////////////////////////
 // Interrupts
 //////////////////////////////////////////////////////////////////////////
 
  // Get pulse timing for each of the rx channels
+ void ch5Int(){
+  if (digitalReadFast(ch5)){
+    prev5 = micros();
+  }
+  else{
+    delta5 = micros() - prev5;
+    
+  }
+ }
+
+  void ch6Int(){
+  if (digitalReadFast(ch6)){
+    prev6 = micros();
+  }
+  else{
+    delta6 = micros() - prev6;
+   
+  }
+ }
  
  void ch1Int(){
   if (digitalReadFast(ch1)){
@@ -295,8 +302,6 @@ void calibrate_gyro(){
 //////////////////////////////////////////////////////////////////////////
 void setup() {
 
-  //for(start = 0; start <= 35; start++)eeprom_data[start] = EEPROM.read(start);
-  //start = 0; //Set start back to zero.
 
   pinMode(led,OUTPUT);
   Serial.begin(115200);
@@ -304,7 +309,7 @@ void setup() {
   //Setup IMU
   //I2C
   Wire.begin();
-  Wire.setClock(4000000);
+  Wire.setClock(5000000);
 
   // Registers and Cal
   set_gyro_registers();
@@ -321,7 +326,8 @@ void setup() {
   attachInterrupt(ch2,ch2Int,CHANGE);
   attachInterrupt(ch3,ch3Int,CHANGE);
   attachInterrupt(ch4,ch4Int,CHANGE);
- 
+  attachInterrupt(ch5,ch5Int,CHANGE);
+  attachInterrupt(ch6,ch6Int,CHANGE);
   
   // All on Timer FTM0 -> pwmFreq
   analogWriteFrequency(escOut1, pwmFreq);
@@ -330,12 +336,14 @@ void setup() {
   analogWriteResolution(pwmRes);
 
   // Initialize ESCs
+  
   analogWrite(escOut1, escInit);
   analogWrite(escOut2, escInit);
   analogWrite(escOut3, escInit);
   analogWrite(escOut4, escInit);
   delay(5000);
-
+  
+  
   // Turn on LED exit setup 
   digitalWrite(led,HIGH);
 
@@ -388,12 +396,16 @@ void calcPulse(){
  throttle = delta3;                                              //We need the throttle signal as a base signal.
 
   if (start == 2){                                                //The motors are started.
-                                                          
+                  
     if (throttle > 1800) throttle = 1800;                                       //We need some room to keep full control at full throttle.
-    escPulse1 = throttle + pid_output_pitch + pid_output_roll + pid_output_yaw; //Calculate the pulse for esc 1 (front-right - CCW)
-    escPulse2 = throttle - pid_output_pitch + pid_output_roll - pid_output_yaw; //Calculate the pulse for esc 2 (rear-right - CW)
-    escPulse3 = throttle - pid_output_pitch - pid_output_roll + pid_output_yaw; //Calculate the pulse for esc 3 (rear-left - CCW)
-    escPulse4 = throttle + pid_output_pitch - pid_output_roll - pid_output_yaw; //Calculate the pulse for esc 4 (front-left - CW)
+    pid_output_pitch = 0;
+    pid_d_gain_roll = 0;
+    pid_output_yaw = 0;
+    
+    escPulse1 = throttle ;//- pid_output_pitch + pid_output_roll + pid_output_yaw; //Calculate the pulse for esc 1 (front-right - CCW)
+    escPulse2 = throttle ;//+ pid_output_pitch + pid_output_roll - pid_output_yaw; //Calculate the pulse for esc 2 (rear-right - CW)
+    escPulse3 = throttle ;//+ pid_output_pitch - pid_output_roll + pid_output_yaw; //Calculate the pulse for esc 3 (rear-left - CCW)
+    escPulse4 = throttle ;//- pid_output_pitch - pid_output_roll - pid_output_yaw; //Calculate the pulse for esc 4 (front-left - CW)
 
     // if (battery_voltage < 1240 && battery_voltage > 800){                            //Is the battery connected?
     //   escPulse1 += escPulse1 * ((1240 - battery_voltage)/(float)3500);              //Compensate the esc-1 pulse for voltage drop.
@@ -544,28 +556,6 @@ void escOutputs(){
 
 }
 
-void escPulseOutput() {
-  unsigned long zero_timer = micros();
-  digitalWriteFast(5, HIGH);
-  digitalWriteFast(6, HIGH);
-  digitalWriteFast(10, HIGH);
-  digitalWriteFast(20, HIGH);
-
-  // PORTD |= B11110000;                                          //Set port 4, 5, 6 and 7 high at once
-   timer_channel_1 = escPulse1 + zero_timer;                          //Calculate the time when digital port 4 is set low.
-  unsigned long timer_channel_2 = escPulse2 + zero_timer;                          //Calculate the time when digital port 5 is set low.
-  unsigned long timer_channel_3 = escPulse3 + zero_timer;                          //Calculate the time when digital port 6 is set low.
-  unsigned long timer_channel_4 = escPulse4 + zero_timer;                          //Calculate the time when digital port 7 is set low.
-
-  while( (digitalReadFast(5) == HIGH) || (digitalReadFast(6) == HIGH) || (digitalReadFast(10) == HIGH) || (digitalReadFast(20) == HIGH)){                                                      //Execute the loop until digital port 4 to 7 is low.
-    unsigned long esc_loop_timer = micros();                                             //Check the current time.
-    if(timer_channel_1 <= esc_loop_timer)digitalWriteFast(5,LOW);     //When the delay time is expired, digital port 4 is set low.
-    if(timer_channel_2 <= esc_loop_timer)digitalWriteFast(6,LOW);     //When the delay time is expired, digital port 5 is set low.
-    if(timer_channel_3 <= esc_loop_timer)digitalWriteFast(10,LOW);     //When the delay time is expired, digital port 6 is set low.
-    if(timer_channel_4 <= esc_loop_timer)digitalWriteFast(20,LOW);     //When the delay time is expired, digital port 7 is set low.
-  }
-}
-
 
 void displayVals(){
 
@@ -607,7 +597,13 @@ if (debug == true){
   Serial.println(pid_last_pitch_d_error);
   Serial.print("PID Roll error: ");
   Serial.println(pid_last_roll_d_error);
-
+  Serial.print("PID D Gain: ");
+  Serial.println(pid_d_gain_pitch);
+  Serial.print("PID P Gain: ");
+  Serial.println(pid_p_gain_pitch);
+  Serial.print("PID I Gain: ");
+  Serial.println(pid_i_gain_pitch);
+  
 
   Serial.print("CH1 :");
   Serial.println(delta1);
@@ -617,6 +613,10 @@ if (debug == true){
   Serial.println(delta3);
   Serial.print("CH4 :");
   Serial.println(delta4);
+  Serial.print("CH5 :");
+  Serial.println(delta5);
+  Serial.print("CH6 :");
+  Serial.println(delta6);
   Serial.println("--ESC output--");
   Serial.print("ESC 1 FR ");
   Serial.println(escPulse1);
@@ -633,7 +633,6 @@ if (debug == true){
   Serial.print("ESC Time 1 ");
   Serial.println(timer_channel_1);
 
-
     prevLoop = elapsedTime;
   } }
 }
@@ -642,6 +641,7 @@ if (debug == true){
 // Main Loop
 //////////////////////////////////////////////////////////////////////////
 void loop() {
+
   //Setup timer for IMU loop calcs and get current measurement
   timer1 = elapsedTime;
 
@@ -656,10 +656,10 @@ void loop() {
   calcPulse();
  
   escOutputs();
-  //escPulseOutput();
 
   displayVals();
 
-   loop_timer = elapsedTime  - timer1;
+  delayMicroseconds(delayTimer);
+  loop_timer = elapsedTime  - timer1;
 }
 
