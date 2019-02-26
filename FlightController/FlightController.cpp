@@ -7,7 +7,7 @@
 /* 
 
  Revised flight code using Teensy 3.5
- 2/17/19
+ 2/26/19
 
  */
 
@@ -31,9 +31,9 @@ boolean auto_level = true;
 //PID gain and limit settings
 //////////////////////////////////////////////////////////////////////////
 
-float pid_p_gain_roll = 1;                 //Gain setting for the roll P-controller
-float pid_i_gain_roll = 0.02;              //Gain setting for the roll I-controller
-float pid_d_gain_roll = 5;                 //Gain setting for the roll D-controller
+float pid_p_gain_roll = 1.3;                 //Gain setting for the roll P-controller
+float pid_i_gain_roll = 0.04;              //Gain setting for the roll I-controller
+float pid_d_gain_roll = 18;                 //Gain setting for the roll D-controller
 int pid_max_roll = 400;                    //Maximum output of the PID-controller (+/-)
 
 float pid_p_gain_pitch = pid_p_gain_roll;  //Gain setting for the pitch P-controller.
@@ -47,7 +47,7 @@ float pid_d_gain_yaw = 0;                  //Gain setting for the pitch D-contro
 int pid_max_yaw = 400;                     //Maximum output of the PID-controller (+/-)
 
 
-int pidDiv = 5;                            // Adjust scaling for rad/s response (500-8)/pidDiv
+int pidDiv = 3;                            // Adjust scaling for rad/s response (500-8)/pidDiv
 int delayTimer = 3600;                        // Setup a delay timer in uS
 
 //////////////////////////////////////////////////////////////////////////
@@ -174,7 +174,7 @@ void set_gyro_registers(){
 
    Wire.beginTransmission(gyro_address); //Start communication with the address found during search
    Wire.write(0x1A); //We want to write to the CONFIG register (1A hex)
-   Wire.write(0b00000000); //Set the register bits as 00000011 (Set Digital Low Pass Filter to ~43Hz)
+   Wire.write(0b00000011); //Set the register bits as 00000011 (Set Digital Low Pass Filter to ~43Hz)
    Wire.endTransmission(); //End the transmission with the gyro
 
    Wire.beginTransmission(gyro_address); //Start communication with the address found during search
@@ -398,14 +398,11 @@ void calcPulse(){
   if (start == 2){                                                //The motors are started.
                   
     if (throttle > 1800) throttle = 1800;                                       //We need some room to keep full control at full throttle.
-    pid_output_pitch = 0;
-    pid_d_gain_roll = 0;
-    pid_output_yaw = 0;
     
-    escPulse1 = throttle ;//- pid_output_pitch + pid_output_roll + pid_output_yaw; //Calculate the pulse for esc 1 (front-right - CCW)
-    escPulse2 = throttle ;//+ pid_output_pitch + pid_output_roll - pid_output_yaw; //Calculate the pulse for esc 2 (rear-right - CW)
-    escPulse3 = throttle ;//+ pid_output_pitch - pid_output_roll + pid_output_yaw; //Calculate the pulse for esc 3 (rear-left - CCW)
-    escPulse4 = throttle ;//- pid_output_pitch - pid_output_roll - pid_output_yaw; //Calculate the pulse for esc 4 (front-left - CW)
+    escPulse1 = throttle - pid_output_pitch + pid_output_roll + pid_output_yaw; //Calculate the pulse for esc 1 (front-right - CCW)
+    escPulse2 = throttle + pid_output_pitch + pid_output_roll - pid_output_yaw; //Calculate the pulse for esc 2 (rear-right - CW)
+    escPulse3 = throttle + pid_output_pitch - pid_output_roll + pid_output_yaw; //Calculate the pulse for esc 3 (rear-left - CCW)
+    escPulse4 = throttle - pid_output_pitch - pid_output_roll - pid_output_yaw; //Calculate the pulse for esc 4 (front-left - CW)
 
     // if (battery_voltage < 1240 && battery_voltage > 800){                            //Is the battery connected?
     //   escPulse1 += escPulse1 * ((1240 - battery_voltage)/(float)3500);              //Compensate the esc-1 pulse for voltage drop.
