@@ -129,8 +129,8 @@ void setup() {
 	// analogWrite(esc_4,escInit);
 	// delay(3000);
 
-	// Hold until throttle is in maximum position to preven init
-	while(timer_3<1950);
+	// Hold until throttle is in maximum position to prevent init
+	while(receiver_input_channel_3<1950);
 
 	// Finished Setup 
 	digitalWrite(led,HIGH);
