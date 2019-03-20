@@ -327,10 +327,10 @@ void loop() {
   escPulse4 = delta3*(pwmMax)/escPulseTime;
   
   // Create PWM for ESCs
-  analogWrite(5,escPulse1);
-  analogWrite(6,escPulse2);
-  analogWrite(10,escPulse3);
-  analogWrite(20,escPulse4);
+  analogWrite(escOut1,escPulse1);
+  analogWrite(escOut2,escPulse2);
+  analogWrite(escOut3,escPulse3);
+  analogWrite(escOut4,escPulse4);
 
 if ((elapsedTime - lastUpdate) > updateTime)
 {
