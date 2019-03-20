@@ -16,6 +16,8 @@
  * IMU angles
  *
  * 3/20/2019
+ * 
+ * MAKE SURE YOU CALIBRATE BEFORE USE 
  */
 
 
@@ -60,6 +62,13 @@ elapsedMicros elapsedTime;
 
 // Wait for Serial ?
  bool waitSerial = true;
+
+// Print Angles 
+ bool angle = false; 
+
+// Print Rates 
+
+bool rates = true; 
 
 ///////////////////////////////////
 // Variables
@@ -176,15 +185,31 @@ if ((elapsedTime - lastUpdate) > updateTime)
 
 if ((elapsedTime - lastPrint) >= printTimer)
 { 
-	Serial.print("Time Elapsed ");
-	Serial.println(elapsedTime);
-	Serial.print("Pitch: ");
-	Serial.println(pitch);
-	Serial.print("Roll: ");
-	Serial.println(roll);
-	Serial.print("Yaw: ");
-	Serial.print(yaw);
-	Serial.println();
+	if (angle == true)
+	{
+		Serial.print("Time Elapsed ");
+	 	Serial.println(elapsedTime);
+		Serial.print("Pitch: ");
+		Serial.println(pitch);
+		Serial.print("Roll: ");
+		Serial.println(roll);
+		Serial.print("Yaw: ");
+		Serial.print(yaw);
+		Serial.println();
+	}
+	if (rates == true)
+	{
+		Serial.println();
+		Serial.print("Time Elapsed ");
+	 	Serial.println(elapsedTime);
+		Serial.print("Pitch Rate: ");
+  		Serial.println(pitch_rate);
+  		Serial.print("Roll Rate: ");
+  		Serial.println(roll_rate);
+  		Serial.print("Yaw Rate: ");
+  		Serial.print(yaw_rate);
+		Serial.println();
+	}
 
 	lastPrint = elapsedTime;
 }
