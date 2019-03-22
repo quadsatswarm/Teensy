@@ -144,6 +144,9 @@ void setup()
 	pinMode(escOut3,OUTPUT);
 	pinMode(escOut4,OUTPUT);
 	pinMode(led,OUTPUT);
+	
+	// Wait for battery to be plugged in 
+	while(digitalRead(battery) == 0);
 
 	//Setup rx pin interrupts
   	attachInterrupt(ch1,ch1Int,CHANGE);
