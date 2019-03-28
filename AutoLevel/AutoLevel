@@ -1,7 +1,6 @@
 /* Teensy 3.5 
  *
  * Autolevel
- * Not completed
  * 
  * 3-21-19 
  * 
@@ -10,6 +9,29 @@
 // Libaries 
 #include <Arduino.h> //Used for Visual Studio's code 
 #include <Wire.h>    //I2C communication 
+#include <Adafruit_Sensor.h>
+#include <Adafruit_FXAS21002C.h>
+#include <Adafruit_FXOS8700.h>
+#include <Mahony.h>
+#include <Madgwick.h>
+#define AHRS_VARIANT   NXP_FXOS8700_FXAS21002
+
+/////////////////////////////////////////////////////////
+//Random
+/////////////////////////////////////////////////////////
+
+elapsedMicros elapsedTime;
+int loop_counter;
+
+/////////////////////////////////////////////////////////
+//SWITCHS
+/////////////////////////////////////////////////////////
+
+bool debug = false; 
+
+bool print = false; 
+int printTimer = 5000;
+int lastPrint = 0;
 
 ////////////////////////////////////////////////////////
 //PIN DEFINITIONS
@@ -30,31 +52,12 @@ int escOut4 = 20;
 // led 
 int led = 13; 
 
-/////////////////////////////////////////////////////////
-//SWITCHS
-/////////////////////////////////////////////////////////
-
-bool debug = false; 
-bool print = false; 
+// Battery 
+int battery = 2;
 
 /////////////////////////////////////////////////////////
-// GLOBAL VARIABLES
+// PWM Variables 
 /////////////////////////////////////////////////////////
-
-// Timing Variables for Pulse Width
- unsigned long prev1 = 0;
- volatile unsigned long delta1 = 1500;
- unsigned long prev2 = 0;
- volatile unsigned long delta2 = 1500;
- unsigned long prev3 = 0;
- volatile unsigned long delta3 = 1500;
- unsigned long prev4 = 0;
- volatile unsigned long delta4 = 1500;
- unsigned long prev5 = 0;
- volatile unsigned long delta5= 1500;
- unsigned long prev6= 0;
-
- // PWM settings 
 
  // Get maximum value for selected PWM resolution (100% Duty)
  int pwmMax = 256;
@@ -75,52 +78,162 @@ bool print = false;
  int escPulse1PWM;
  int escPulse2PWM;
  int escPulse3PWM;
- int escPulse3PWM;
+ int escPulse4PWM;
 
+ /////////////////////////////////////////////////////////
+// IMU 
+/////////////////////////////////////////////////////////
+
+ float pitch, roll, yaw;
+ float pitch_rate, roll_rate, yaw_rate;
+
+Adafruit_FXAS21002C gyro = Adafruit_FXAS21002C(0x0021002C);
+Adafruit_FXOS8700 accelmag = Adafruit_FXOS8700(0x8700A, 0x8700B);
+
+// Calibration 
+
+// Offsets applied to raw x/y/z mag values
+ float mag_offsets[3] = { -1.32F, -14.71F, 43.91F };
+
+// Soft iron error compensation matrix
+ float mag_softiron_matrix[3][3] = { {  0.999,  -0.037,  -0.009 },
+									 {  -0.037,  0.988, 0.008 },
+									 {  -0.009, 0.008,  1.014 } };
+
+ float mag_field_strength = 38.21F;
+
+// Offsets applied to compensate for gyro zero-drift error for x/y/z
+ float gyro_zero_offsets[3]      = { 0.0F, 0.0F, 0.0F };
+
+// Filter type
+ Mahony filter;
+ //Madgwick filter;
+
+ // Filter sample rate
+ int updateFreq = 250;
+ int updateTime = 1000000*(1/updateFreq);
+ int lastUpdate = 0;
+
+
+ /////////////////////////////////////////////////////////
+// PID 
+/////////////////////////////////////////////////////////
+int inputRoll;
+int inputPitch;
+
+int errorRoll; 
+int errorPitch;
+int rollPulse;
+ 
+
+ void getIMU()
+{
+	 sensors_event_t gyro_event;
+	 sensors_event_t accel_event;
+	 sensors_event_t mag_event;
+	 gyro.getEvent(&gyro_event);
+	 accelmag.getEvent(&accel_event, &mag_event);
+
+	 // Apply mag offset compensation (base values in uTesla)
+	 float x = mag_event.magnetic.x - mag_offsets[0];
+	 float y = mag_event.magnetic.y - mag_offsets[1];
+	 float z = mag_event.magnetic.z - mag_offsets[2];
+
+	 // Apply mag soft iron error compensation
+	 float mx = x * mag_softiron_matrix[0][0] + y * mag_softiron_matrix[0][1] + z * mag_softiron_matrix[0][2];
+	 float my = x * mag_softiron_matrix[1][0] + y * mag_softiron_matrix[1][1] + z * mag_softiron_matrix[1][2];
+	 float mz = x * mag_softiron_matrix[2][0] + y * mag_softiron_matrix[2][1] + z * mag_softiron_matrix[2][2];
+
+	 // Apply gyro zero-rate error compensation
+	 float gx = gyro_event.gyro.x + gyro_zero_offsets[0];
+	 float gy = gyro_event.gyro.y + gyro_zero_offsets[1];
+	 float gz = gyro_event.gyro.z + gyro_zero_offsets[2];
+
+	 // The filter library expects gyro data in degrees/s, but adafruit sensor
+	 // uses rad/s so we need to convert them first (or adapt the filter lib
+	 // where they are being converted)
+	 gx *= 57.2958F;
+	 gy *= 57.2958F;
+	 gz *= 57.2958F;
+
+		filter.update(gx, gy, gz,
+								 accel_event.acceleration.x, accel_event.acceleration.y, accel_event.acceleration.z,
+								 mx, my, mz);
+
+	 pitch = filter.getRoll();
+	 roll = filter.getPitch();
+	 yaw = filter.getYaw();
+	 yaw_rate = gyro_event.gyro.z;
+	 pitch_rate = gyro_event.gyro.x;
+	 roll_rate = gyro_event.gyro.y;
+}
+
+/////////////////////////////////////////////////////////
+// PWM Variables 
+/////////////////////////////////////////////////////////
  int throttle;
 
  /////////////////////////////////////////////////////////
  // INTERUPTS
  /////////////////////////////////////////////////////////
 
+ // Timing Variables for Pulse Width
+ unsigned long prev1 = 0;
+ volatile unsigned long delta1 = 1500;
+ unsigned long prev2 = 0;
+ volatile unsigned long delta2 = 1500;
+ unsigned long prev3 = 0;
+ volatile unsigned long delta3 = 1500;
+ unsigned long prev4 = 0;
+ volatile unsigned long delta4 = 1500;
+ unsigned long prev5 = 0;
+ volatile unsigned long delta5 = 1500;
+ unsigned long prev6= 0;
+
+
  // Get pulse timing 
+
+ // Roll 
  void ch1Int()
 {
   if (digitalReadFast(ch1)){
-    prev1 = micros();
+	prev1 = micros();
   }
   else{
-    delta1 = micros() - prev1;
+	delta1 = micros() - prev1;
   }
 }
 
+// Pitch 
 void ch2Int()
 {
   if (digitalReadFast(ch2)){
-    prev2 = micros();
+	prev2 = micros();
   }
   else{
-    delta2 = micros() - prev2;
+	delta2 = micros() - prev2;
   }
 }
- 
+
+// Throttle 
 void ch3Int()
 {
    if (digitalReadFast(ch3)){
-    prev3 = micros();
+	prev3 = micros();
    }
    else{
-    delta3 = micros() - prev3;
+	delta3 = micros() - prev3;
    }  
 }
 
+// Yaw 
 void ch4Int()
 {
    if (digitalReadFast(ch4)){
-    prev4 = micros();
+	prev4 = micros();
    }
    else{
-    delta4 = micros() - prev4;
+	delta4 = micros() - prev4;
    }
 }
 
@@ -144,9 +257,26 @@ void setup()
 	pinMode(escOut3,OUTPUT);
 	pinMode(escOut4,OUTPUT);
 	pinMode(led,OUTPUT);
-	
+	pinMode(battery,INPUT);
+
+	// Initilize IMU 
+	if(!gyro.begin(GYRO_RANGE_250DPS))
+	{
+		/* There was a problem detecting the gyro ... check your connections */
+		Serial.println("Ooops, no gyro detected ... Check your wiring!");
+		while(1);
+	}
+
+	if(!accelmag.begin(ACCEL_RANGE_4G))
+	{
+		Serial.println("Ooops, no FXOS8700 detected ... Check your wiring!");
+		while(1);
+	}
+
+	filter.begin(updateFreq);
+
 	// Wait for battery to be plugged in 
-	while(digitalRead(battery) == 0);
+	// while(digitalRead(battery) == 0);
 
 	//Setup rx pin interrupts
   	attachInterrupt(ch1,ch1Int,CHANGE);
@@ -169,17 +299,100 @@ void setup()
 
 	// Setup complete 
 	digitalWrite(led,HIGH);
+	Serial.println("Finished Setup");
+	delay(1000);
 
 }
 
 void loop() 
 {
-	// Test to see if code works 
-	throttle = delta3;
-	escPulse1PWM = throttle*pwmMax/escPulseTime;
-	analogWrite(escOut1, escPulse1PWM);
-  	analogWrite(escOut2, escPulse1PWM);
-  	analogWrite(escOut3, escPulse1PWM);
-  	analogWrite(escOut4, escPulse1PWM);
-	delay(10);
+
+	if ((elapsedTime - lastUpdate) > updateTime)
+	{
+		lastUpdate = elapsedTime;
+		getIMU();
+
+		// Calulate Roll Pulse 
+		inputRoll = delta1 - 1500; 
+		errorRoll = inputRoll - roll_rate; 
+		rollPulse = errorRoll;
+
+		// Calculate Pitch Pulse 
+		inputPitch = 
+
+		// Adjust Motor Pulses 
+		throttle = delta3;
+
+		escPulse1 = throttle + rollPulse;
+		escPulse2 = throttle + rollPulse;
+		escPulse3 = throttle - rollPulse;
+		escPulse4 = throttle - rollPulse;
+
+		// Set bounds on the motor Pulse 
+
+		// UpperBound 
+		if (escPulse1 > 2000)
+		{
+			escPulse1 = 2000;
+		}
+
+		if (escPulse2 > 2000)
+		{
+			escPulse2 = 2000;
+		}
+
+		if (escPulse3 > 2000)
+		{
+			escPulse3 = 2000;
+		}
+
+		if (escPulse4 > 2000)
+		{
+			escPulse4 = 2000;
+		}
+
+		// LowerBound 
+		if (escPulse1 < 1100)
+		{
+			escPulse1 = 1100;
+		}
+
+		if (escPulse2 < 1100)
+		{
+			escPulse2 = 1100;
+		}
+
+		if (escPulse3 < 1100)
+		{
+			escPulse3 = 1100;
+		}
+
+		if (escPulse4 < 1100)
+		{
+			escPulse4 = 1100;
+		}
+
+		// Convert Mircosecond time to PWM pulse 
+		escPulse1PWM = escPulse1*pwmMax/escPulseTime;
+		escPulse2PWM = escPulse2*pwmMax/escPulseTime;
+		escPulse3PWM = escPulse3*pwmMax/escPulseTime;
+		escPulse4PWM = escPulse4*pwmMax/escPulseTime;
+
+
+		analogWrite(escOut1, escPulse1PWM);
+  		analogWrite(escOut2, escPulse2PWM);
+  		analogWrite(escOut3, escPulse3PWM);
+  		analogWrite(escOut4, escPulse4PWM);
+	}	
+
+
+	if ((elapsedTime - lastPrint) >= printTimer || print == true)
+	{
+		Serial.print("escPulse1: ");
+		Serial.println(escPulse1);
+	}
+
+
+
+
 }
