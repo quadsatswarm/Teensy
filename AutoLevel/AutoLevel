@@ -6,7 +6,9 @@
  * 
 */
 
-// Libaries 
+/////////////////////////////////////////////////////////
+//LIBARIES 
+/////////////////////////////////////////////////////////
 #include <Arduino.h> //Used for Visual Studio's code 
 #include <Wire.h>    //I2C communication 
 #include <Adafruit_Sensor.h>
@@ -26,7 +28,6 @@ int loop_counter;
 /////////////////////////////////////////////////////////
 //SWITCHS
 /////////////////////////////////////////////////////////
-
 bool debug = false; 
 
 bool print = false; 
@@ -42,6 +43,7 @@ int ch1 = 7;
 int ch2 = 8;
 int ch3 = 14;
 int ch4 = 35;
+int ch5 = 33;
 
 // esc
 int escOut1 = 5;
@@ -114,18 +116,6 @@ Adafruit_FXOS8700 accelmag = Adafruit_FXOS8700(0x8700A, 0x8700B);
  int updateTime = 1000000*(1/updateFreq);
  int lastUpdate = 0;
 
-
- /////////////////////////////////////////////////////////
-// PID 
-/////////////////////////////////////////////////////////
-int inputRoll;
-int inputPitch;
-
-int errorRoll; 
-int errorPitch;
-int rollPulse;
- 
-
  void getIMU()
 {
 	 sensors_event_t gyro_event;
@@ -160,18 +150,20 @@ int rollPulse;
 								 accel_event.acceleration.x, accel_event.acceleration.y, accel_event.acceleration.z,
 								 mx, my, mz);
 
+	 // Degrees  
 	 pitch = filter.getRoll();
 	 roll = filter.getPitch();
-	 yaw = filter.getYaw();
-	 yaw_rate = gyro_event.gyro.z;
-	 pitch_rate = gyro_event.gyro.x;
-	 roll_rate = gyro_event.gyro.y;
+	 yaw = -1*filter.getYaw();
+
+	 // Degrees per second 
+	 pitch_rate = gyro_event.gyro.x*(180/3.14);
+	 roll_rate = gyro_event.gyro.y*(180/3.14);
+	 yaw_rate = -1*gyro_event.gyro.z*(180/3.14);
 }
 
 /////////////////////////////////////////////////////////
 // PWM Variables 
 /////////////////////////////////////////////////////////
- int throttle;
 
  /////////////////////////////////////////////////////////
  // INTERUPTS
@@ -179,16 +171,15 @@ int rollPulse;
 
  // Timing Variables for Pulse Width
  unsigned long prev1 = 0;
- volatile unsigned long delta1 = 1500;
+ volatile unsigned long roll_ratePulse = 1500;
  unsigned long prev2 = 0;
- volatile unsigned long delta2 = 1500;
+ volatile unsigned long pitch_ratePulse = 1500;
  unsigned long prev3 = 0;
- volatile unsigned long delta3 = 1500;
+ volatile unsigned long throttle_Pulse = 1500;
  unsigned long prev4 = 0;
- volatile unsigned long delta4 = 1500;
+ volatile unsigned long yaw_ratePulse = 1500;
  unsigned long prev5 = 0;
  volatile unsigned long delta5 = 1500;
- unsigned long prev6= 0;
 
 
  // Get pulse timing 
@@ -200,7 +191,7 @@ int rollPulse;
 	prev1 = micros();
   }
   else{
-	delta1 = micros() - prev1;
+	roll_ratePulse = micros() - prev1;
   }
 }
 
@@ -211,7 +202,7 @@ void ch2Int()
 	prev2 = micros();
   }
   else{
-	delta2 = micros() - prev2;
+	pitch_ratePulse = micros() - prev2;
   }
 }
 
@@ -222,7 +213,7 @@ void ch3Int()
 	prev3 = micros();
    }
    else{
-	delta3 = micros() - prev3;
+	throttle_Pulse = micros() - prev3;
    }  
 }
 
@@ -233,8 +224,91 @@ void ch4Int()
 	prev4 = micros();
    }
    else{
-	delta4 = micros() - prev4;
+	yaw_ratePulse = micros() - prev4;
    }
+}
+
+// Switch 
+void ch5Int()
+{
+   if (digitalReadFast(ch5)){
+	prev5 = micros();
+   }
+   else{
+	delta5 = micros() - prev5;
+   }
+}
+
+/////////////////////////////////////////////////////////
+// Controller Calibration  
+/////////////////////////////////////////////////////////
+int throttleMax;
+int throttleMin; 
+
+int roll_rateCenter = 1500;
+
+int pitch_rateCenter = 1500;
+
+int yaw_rateCenter = 1500;
+
+
+ /////////////////////////////////////////////////////////
+// PID 
+/////////////////////////////////////////////////////////
+
+// Pitch Variables 
+int inputPitch;
+int errorPitch; 
+int pitchPulse;
+int last_errorPitch;
+int Ipitch;
+
+int pPitch = 1;
+int dPitch = 1;
+int iPitch = 1;
+
+// Roll Variables 
+int inputRoll;
+int errorRoll; 
+int rollPulse;
+int last_errorRoll;
+int Iroll;
+
+int pRoll = 1;
+int dRoll = 1;
+int iRoll = 1;
+
+// Yaw Variables 
+int inputYaw;
+int errorYaw; 
+int yawPulse;
+int last_errorYaw;
+
+int pYaw = 1;
+int dYaw = 1;
+
+
+
+void PID()
+{
+	inputPitch = pitch_rateCenter - pitch_ratePulse;
+	errorPitch = inputPitch - pitch_rate;
+	Ipitch += iPitch*(errorPitch - last_errorPitch); 
+	pitchPulse = pPitch*errorPitch + dPitch*(errorPitch - last_errorPitch) + Ipitch;
+	last_errorPitch = errorPitch;
+
+	inputRoll = roll_ratePulse - roll_rateCenter;
+	errorRoll = inputRoll - roll_rate;
+	Iroll += iRoll*(errorRoll - last_errorRoll);
+	rollPulse = pRoll*errorRoll + dRoll*(errorRoll - last_errorRoll) + Iroll;
+	last_errorRoll = errorRoll;
+
+	// Don't know what other gains are need here
+	inputYaw = yaw_ratePulse - yaw_rateCenter;
+	errorYaw = inputYaw - yaw_rate;
+	yawPulse = pYaw*errorYaw;
+	last_errorYaw = errorYaw;
+
 }
 
 
@@ -252,15 +326,17 @@ void setup()
 	pinMode(ch2,INPUT);
 	pinMode(ch3,INPUT);
 	pinMode(ch4,INPUT);
+
 	pinMode(escOut1,OUTPUT);
 	pinMode(escOut2,OUTPUT);
 	pinMode(escOut3,OUTPUT);
 	pinMode(escOut4,OUTPUT);
+
 	pinMode(led,OUTPUT);
 	pinMode(battery,INPUT);
 
 	// Initilize IMU 
-	if(!gyro.begin(GYRO_RANGE_250DPS))
+	if(!gyro.begin(GYRO_RANGE_500DPS))
 	{
 		/* There was a problem detecting the gyro ... check your connections */
 		Serial.println("Ooops, no gyro detected ... Check your wiring!");
@@ -283,6 +359,7 @@ void setup()
   	attachInterrupt(ch2,ch2Int,CHANGE);
   	attachInterrupt(ch3,ch3Int,CHANGE);
   	attachInterrupt(ch4,ch4Int,CHANGE);
+	attachInterrupt(ch5,ch5Int,CHANGE);
 	
 	// All on Timer FTM0 -> pwmFreq
   	analogWriteFrequency(escOut1, pwmFreq);
@@ -309,24 +386,16 @@ void loop()
 
 	if ((elapsedTime - lastUpdate) > updateTime)
 	{
+
 		lastUpdate = elapsedTime;
 		getIMU();
 
-		// Calulate Roll Pulse 
-		inputRoll = delta1 - 1500; 
-		errorRoll = inputRoll - roll_rate; 
-		rollPulse = errorRoll;
+		PID();
 
-		// Calculate Pitch Pulse 
-		inputPitch = 
-
-		// Adjust Motor Pulses 
-		throttle = delta3;
-
-		escPulse1 = throttle + rollPulse;
-		escPulse2 = throttle + rollPulse;
-		escPulse3 = throttle - rollPulse;
-		escPulse4 = throttle - rollPulse;
+		escPulse1 = throttle_Pulse - rollPulse + pitchPulse + yawPulse;
+		escPulse2 = throttle_Pulse - rollPulse - pitchPulse - yawPulse;
+		escPulse3 = throttle_Pulse + rollPulse - pitchPulse + yawPulse; 
+		escPulse4 = throttle_Pulse + rollPulse + pitchPulse - yawPulse;
 
 		// Set bounds on the motor Pulse 
 
@@ -372,12 +441,21 @@ void loop()
 			escPulse4 = 1100;
 		}
 
+
+
+		if(delta5 < 1100)
+		{
+			escPulse1 = 1000;
+			escPulse2 = 1000;
+			escPulse3 = 1000;
+			escPulse4 = 1000;
+		}
+
 		// Convert Mircosecond time to PWM pulse 
 		escPulse1PWM = escPulse1*pwmMax/escPulseTime;
 		escPulse2PWM = escPulse2*pwmMax/escPulseTime;
 		escPulse3PWM = escPulse3*pwmMax/escPulseTime;
 		escPulse4PWM = escPulse4*pwmMax/escPulseTime;
-
 
 		analogWrite(escOut1, escPulse1PWM);
   		analogWrite(escOut2, escPulse2PWM);
@@ -388,11 +466,7 @@ void loop()
 
 	if ((elapsedTime - lastPrint) >= printTimer || print == true)
 	{
-		Serial.print("escPulse1: ");
 		Serial.println(escPulse1);
 	}
-
-
-
 
 }
