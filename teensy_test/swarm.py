@@ -1,5 +1,6 @@
 import math
 import numpy
+import struct
 from digi.xbee.devices import XBeeDevice
 from scipy.special import lambertw
 import time
@@ -163,7 +164,7 @@ A8 = numpy.add([0, 0, 21], xad)
 NODE_LOC = [A1, A2, A3, A4, A5, A6, A7, A8]
 
 # XBEE Specific
-XBEE_PORT = '/dev/ttyUSB1'  # TODO: This will need to change most likely depending on what XBee is recognized as
+XBEE_PORT = '/dev/ttyUSB0'  # TODO: This will need to change most likely depending on what XBee is recognized as
 BAUD_RATE = 9600
 device = XBeeDevice(XBEE_PORT, BAUD_RATE)
 device.open()
@@ -176,8 +177,15 @@ def update_agent_loc(xbee_message):
                          Will be in the format of:  agent_num, x, y, z
     :return nothing
     """
-    tmp_arr = [float(s) for s in xbee_message.data.decode().split(',')]
-    AGENT_LOC[tmp_arr[0]] = [tmp_arr[1], tmp_arr[2], tmp_arr[3]]
+    xbee_data = xbee_message.data
+    xbee_data = struct.pack("bddd", 0, 43.134620666503906, -70.93431854248047, 117.5)
+    print (xbee_data)
+    fmt = "bddd" # this formatting should change depending on the type of GPS values i.e., longs doubles, etc.
+    # print(fmt)
+    print(list(struct.unpack(fmt, xbee_data)))
+    # tmp_arr = list(struct.unpack(fmt, xbee_message.data))
+    tmp_arr = [43.134620666503906, -70.93431854248047, 117.5]
+    AGENT_LOC[0] = [tmp_arr[0], tmp_arr[1], tmp_arr[2]]
 
 
 device.add_data_received_callback(update_agent_loc)
@@ -186,9 +194,9 @@ device.add_data_received_callback(update_agent_loc)
 #
 
 while True:
-    t1 = time.time()
+    # t1 = time.time()
     ret = swarm_next_location(NODE_LOC, AGENT_LOC, agents_vel)
-    print(numpy.array2string(ret))
+    # print(numpy.array2string(ret))
     device.send_data_broadcast(numpy.array2string(ret))
-    # time.sleep(1)
-    print(time.time() - t1)
+    time.sleep(1)
+    # print(time.time() - t1)
