@@ -2,7 +2,7 @@ import math
 import numpy
 import struct
 from digi.xbee.devices import XBeeDevice
-from scipy.special import lambertw
+# from scipy.special import lambertw
 import time
 import warnings
 
@@ -27,17 +27,19 @@ warnings.filterwarnings("ignore", message="Casting complex values to real discar
 
 # Remains constant during a single run, can be calculated and loaded onto the controller beforehand.
 # lambert(z, k) = lambert of zed for the kth branch
-gamma = float((-SMOOTHNESS_COEFFICIENT / (math.pow(EQUILIBRIUM_DISTANCE, 2) + SMOOTHNESS_COEFFICIENT))
-              * lambertw(-1 / (math.e * STEEPNESS_COEFFICIENT), k=-1))
-
+# gamma = float((-SMOOTHNESS_COEFFICIENT / (math.pow(EQUILIBRIUM_DISTANCE, 2) + SMOOTHNESS_COEFFICIENT))
+#               * lambertw(-1 / (math.e * STEEPNESS_COEFFICIENT), k=-1))
+gamma = 4.243528926663229
 repulsive_gain = float(
     ATTRACTIVE_GAIN * ((1 - ATTRACTIVE_FRACTION) / (1 - REPULSIVE_FRACTION)) * math.sqrt(
         (math.e * STEEPNESS_COEFFICIENT * SMOOTHNESS_COEFFICIENT) / (gamma * math.exp(gamma))))
 
-repulsive_aoe = float(
-    2 * SMOOTHNESS_COEFFICIENT / lambertw(math.pow(math.e * STEEPNESS_COEFFICIENT * SMOOTHNESS_COEFFICIENT * (
-            (ATTRACTIVE_GAIN * (1 - ATTRACTIVE_FRACTION)) / (repulsive_gain * (1 - REPULSIVE_FRACTION))), 2),
-                                          k=0))
+# repulsive_aoe = float(
+#     2 * SMOOTHNESS_COEFFICIENT / lambertw(math.pow(math.e * STEEPNESS_COEFFICIENT * SMOOTHNESS_COEFFICIENT * (
+#             (ATTRACTIVE_GAIN * (1 - ATTRACTIVE_FRACTION)) / (repulsive_gain * (1 - REPULSIVE_FRACTION))), 2),
+#                                           k=0))
+repulsive_aoe = 0.9480801932704002
+
 attractive_aoe = repulsive_aoe
 long_range_repulsive = ATTRACTIVE_FRACTION * ATTRACTIVE_GAIN
 short_range_attractive = REPULSIVE_FRACTION * repulsive_gain
@@ -164,7 +166,7 @@ A8 = numpy.add([0, 0, 21], xad)
 NODE_LOC = [A1, A2, A3, A4, A5, A6, A7, A8]
 
 # XBEE Specific
-XBEE_PORT = '/dev/ttyUSB0'  # TODO: This will need to change most likely depending on what XBee is recognized as
+XBEE_PORT = 'COM9'  # TODO: This will need to change most likely depending on what XBee is recognized as
 BAUD_RATE = 9600
 device = XBeeDevice(XBEE_PORT, BAUD_RATE)
 device.open()
@@ -178,14 +180,13 @@ def update_agent_loc(xbee_message):
     :return nothing
     """
     xbee_data = xbee_message.data
-    xbee_data = struct.pack("bddd", 0, 43.134620666503906, -70.93431854248047, 117.5)
     print (xbee_data)
-    fmt = "bddd" # this formatting should change depending on the type of GPS values i.e., longs doubles, etc.
+    fmt = "illl" # this formatting should change depending on the type of GPS values i.e., longs doubles, etc.
     # print(fmt)
     print(list(struct.unpack(fmt, xbee_data)))
-    # tmp_arr = list(struct.unpack(fmt, xbee_message.data))
-    tmp_arr = [43.134620666503906, -70.93431854248047, 117.5]
-    AGENT_LOC[0] = [tmp_arr[0], tmp_arr[1], tmp_arr[2]]
+    tmp_arr = list(struct.unpack(fmt, xbee_message.data))
+    # tmp_arr = [43.134620666503906, -70.93431854248047, 117.5]
+    AGENT_LOC[tmp_arr[0]] = [tmp_arr[1], tmp_arr[2], tmp_arr[3]]
 
 
 device.add_data_received_callback(update_agent_loc)
@@ -196,7 +197,7 @@ device.add_data_received_callback(update_agent_loc)
 while True:
     # t1 = time.time()
     ret = swarm_next_location(NODE_LOC, AGENT_LOC, agents_vel)
-    # print(numpy.array2string(ret))
+    print(ret)
     device.send_data_broadcast(numpy.array2string(ret))
     time.sleep(1)
     # print(time.time() - t1)
