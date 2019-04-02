@@ -1,0 +1,142 @@
+/* 
+ * CHECK RECIEVER PULSES
+ * range: 1000-2000
+ * HARDWARE:
+ * Teensy 3.5 
+ * FLYSKY FS I6 reciever
+ * 
+ */
+
+
+////////////////////////////////////////////////////////
+//LIBARIES
+////////////////////////////////////////////////////////
+#include <Arduino.h>
+#include <Wire.h>
+
+////////////////////////////////////////////////////////
+//RANDOM
+////////////////////////////////////////////////////////
+int loop_counter;
+
+////////////////////////////////////////////////////////
+//PIN DEFINITIONS
+////////////////////////////////////////////////////////
+
+// Reciever  
+int ch1 = 7;
+int ch2 = 8;
+int ch3 = 14;
+int ch4 = 35;
+int ch5 = 33;
+
+// esc
+int escOut1 = 5;
+int escOut2 = 6;
+int escOut3 = 10;
+int escOut4 = 20;
+
+// led 
+int led = 13; 
+
+ /////////////////////////////////////////////////////////
+ // INTERUPTS
+ /////////////////////////////////////////////////////////
+
+ // Timing Variables for Pulse Width
+ unsigned long prev1 = 0;
+ volatile unsigned long delta1 = 1500;
+ unsigned long prev2 = 0;
+ volatile unsigned long delta2 = 1500;
+ unsigned long prev3 = 0;
+ volatile unsigned long delta3 = 1500;
+ unsigned long prev4 = 0;
+ volatile unsigned long delta4 = 1500;
+ unsigned long prev5 = 0;
+ volatile unsigned long delta5 = 1500;
+ unsigned long prev6= 0;
+
+
+ // Get pulse timing 
+
+ // Roll 
+ void ch1Int()
+{
+  if (digitalReadFast(ch1)){
+	prev1 = micros();
+  }
+  else{
+	delta1 = micros() - prev1;
+  }
+}
+
+// Pitch 
+void ch2Int()
+{
+  if (digitalReadFast(ch2)){
+	prev2 = micros();
+  }
+  else{
+	delta2 = micros() - prev2;
+  }
+}
+
+// Throttle 
+void ch3Int()
+{
+   if (digitalReadFast(ch3)){
+	prev3 = micros();
+   }
+   else{
+	delta3 = micros() - prev3;
+   }  
+}
+
+// Yaw 
+void ch4Int()
+{
+   if (digitalReadFast(ch4)){
+	prev4 = micros();
+   }
+   else{
+	delta4 = micros() - prev4;
+   }
+}
+
+// On Off 
+void ch5Int()
+{
+   if (digitalReadFast(ch5)){
+	prev5 = micros();
+   }
+   else{
+	delta5 = micros() - prev5;
+   }
+}
+
+void setup() {
+	// Start Serial Monitor 
+	Serial.begin(115200);
+	while(!Serial);
+
+
+	// Initialize interrupt 
+	attachInterrupt(ch1,ch1Int,CHANGE);
+	attachInterrupt(ch2,ch2Int,CHANGE);
+	attachInterrupt(ch3,ch3Int,CHANGE);
+	attachInterrupt(ch4,ch4Int,CHANGE);
+	attachInterrupt(ch5,ch5Int,CHANGE);
+
+	// Finished Setup 
+	digitalWrite(led,HIGH);
+	delay(250);
+}
+
+void loop() {
+	loop_counter++;
+	if(loop_counter == 10000)
+	{
+		Serial.println(delta5);
+		loop_counter = 0;
+	}
+}
