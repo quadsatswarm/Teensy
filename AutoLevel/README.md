@@ -1,1 +1,1 @@
-Starting to create autolevel with teensy 3.5 NXP adafruit IMU.
+Currently have PID code on teensy. Need to add delay for IMU angles to settle. Then can create autolevel code.
