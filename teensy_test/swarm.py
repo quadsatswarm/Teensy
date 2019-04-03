@@ -7,7 +7,8 @@ import time
 import warnings
 
 # Variables for artificial position field calculations
-AGENT_COUNT = 1  # Number of Agents/Quadcopters
+AGENT_COUNT = 1  # Number of Agents/Quadcopters in use
+MAX_AGENT_COUNT = 8 # Maximum number of agents for consistent reads
 NODE_COUNT = 1  # Number of Attractive Nodes
 DIMENSION_COUNT = 3  # Dimensions
 
@@ -63,7 +64,7 @@ agents_vel = [[0, 0, 0]]  # TODO: is this true at t = 0;
 # angles = [0, 0, 0]
 
 
-def swarm_next_location(node_locations, agents_locations, agents_velocities):
+def swarm_next_location(node_locations, agents_locations, agents_velocities) -> numpy.ndarray:
     """
     Swarm function
 
@@ -118,8 +119,8 @@ def swarm_next_location(node_locations, agents_locations, agents_velocities):
 
     # Gains
     # Sliding Mode Control constants
-    c = numpy.zeros((AGENT_COUNT, DIMENSION_COUNT))
-    k = numpy.zeros((AGENT_COUNT, DIMENSION_COUNT))
+    c = numpy.zeros((MAX_AGENT_COUNT, DIMENSION_COUNT))
+    k = numpy.zeros((MAX_AGENT_COUNT, DIMENSION_COUNT))
 
     # row by row multiplication
     for agent_it_1 in range(AGENT_COUNT):
@@ -135,14 +136,14 @@ def swarm_next_location(node_locations, agents_locations, agents_velocities):
 
 # Agent Positions
 # Should come from GPSs
-X1 = [0, 2, 0]
-X2 = [0, - 2, 0]
-X3 = [2, 0, 0]
-X4 = [-2, 0, 0]
+X1 = [0, 0, 0]
+X2 = [0, 0, 0]
+X3 = [0, 0, 0]
+X4 = [0, 0, 0]
 X5 = [0, 0, 0]
-X6 = [10, - 10, 0]
-X7 = [-10, - 10, 0]
-X8 = [-10, 10, 0]
+X6 = [0, 0, 0]
+X7 = [0, 0, 0]
+X8 = [0, 0, 0]
 AGENT_LOC = numpy.array([X1])
 
 AGENT_LOC = numpy.vstack([AGENT_LOC, X2])
@@ -170,6 +171,7 @@ XBEE_PORT = 'COM9'  # TODO: This will need to change most likely depending on wh
 BAUD_RATE = 9600
 device = XBeeDevice(XBEE_PORT, BAUD_RATE)
 device.open()
+device.set_sync_ops_timeout(10) # 10 second timeout
 
 
 def update_agent_loc(xbee_message):
@@ -197,7 +199,10 @@ device.add_data_received_callback(update_agent_loc)
 while True:
     # t1 = time.time()
     ret = swarm_next_location(NODE_LOC, AGENT_LOC, agents_vel)
+    # retString = numpy.array2string(ret)
+    retBytes = ret.tobytes()
     print(ret)
-    device.send_data_broadcast(numpy.array2string(ret))
-    time.sleep(1)
+    print(retBytes)
+    device.send_data_broadcast(retBytes)
+    time.sleep(5)
     # print(time.time() - t1)
