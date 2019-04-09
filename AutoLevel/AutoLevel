@@ -1,36 +1,52 @@
-/* Teensy 3.5 
+/* FLIGHT CONTROLLER
  *
- * Autolevel
+ * 
+ * HARDWARE 
+ * TEENSY 3.5 
+ * NXP 9DOF ADIAFRUIT IMU 
+ * MOTOR TYPE: MULTISTAR 980KV Green Taller 
+ *  
+ * 
+ * CREATED BY:
+ * JOSHUA WALLACE, KIETH NASON
  * 
  * 3-21-19 
  * 
 */
+
+// TODO'S 
+/* 4-5-19
+ * 1. ASK KIETH ABOUT YAW(NOT WORKING PROPERLY BUT NOT NEEDED FOR PID) 
+ * 2.  FIND A TO MAKE PULSE 1000 IF CONTROLLER IS NOT ON (NOT WORKING)
+ * 3. CHECK CONTROLLER CALIBRATION CODE TO SEE IF SCALING WORKS(NOT WORKING) 
+ * 3a. GET GOOD IMU READINGS 
+ * 4. PUT PROPELLERS ON AND TEST TO SEE IF CONTROLLER IS WORKING(YES) 
+ * 6. Find why: warning: comparison between signed and unsigned integer expressions(ASK MIKE)
+*/ 
 
 /////////////////////////////////////////////////////////
 //LIBARIES 
 /////////////////////////////////////////////////////////
 #include <Arduino.h> //Used for Visual Studio's code 
 #include <Wire.h>    //I2C communication 
-#include <Adafruit_Sensor.h>
+#include <Adafruit_Sensor.h> // IMU libaries 
 #include <Adafruit_FXAS21002C.h>
 #include <Adafruit_FXOS8700.h>
-#include <Mahony.h>
+#include <Mahony.h>	// Filters for IMU
 #include <Madgwick.h>
-#define AHRS_VARIANT   NXP_FXOS8700_FXAS21002
+#define AHRS_VARIANT   NXP_FXOS8700_FXAS21002	
 
 /////////////////////////////////////////////////////////
-//Random
+//RANDOM
 /////////////////////////////////////////////////////////
 
 elapsedMicros elapsedTime;
-int loop_counter;
 
 /////////////////////////////////////////////////////////
 //SWITCHS
 /////////////////////////////////////////////////////////
 bool debug = false; 
 
-bool print = false; 
 int printTimer = 5000;
 int lastPrint = 0;
 
@@ -54,14 +70,14 @@ int escOut4 = 20;
 // led 
 int led = 13; 
 
-// Battery 
+// Battery ///NEED TO ADD CODE TO ACCOUNT FOR START OF MOTORS AND BATTERY PLUG IN 
 int battery = 2;
 
 /////////////////////////////////////////////////////////
 // PWM Variables 
 /////////////////////////////////////////////////////////
 
- // Get maximum value for selected PWM resolution (100% Duty)
+ // Get maximum value for selected PWM resolution (100% Duty) //ASK KIETH TO LOOK INTO BETTER RESOLUTION
  int pwmMax = 256;
  // Initializing pulse for ESCs, 25% duty
  int escInit = pwmMax/4;
@@ -76,7 +92,7 @@ int battery = 2;
  int escPulse3;
  int escPulse4;
 
- // signal for analog write 
+ // Value for analog write function 
  int escPulse1PWM;
  int escPulse2PWM;
  int escPulse3PWM;
@@ -95,14 +111,14 @@ Adafruit_FXOS8700 accelmag = Adafruit_FXOS8700(0x8700A, 0x8700B);
 // Calibration 
 
 // Offsets applied to raw x/y/z mag values
- float mag_offsets[3] = { -1.32F, -14.71F, 43.91F };
+ float mag_offsets[3] = { 20.74F, -34.59F, 42.05F };
 
 // Soft iron error compensation matrix
- float mag_softiron_matrix[3][3] = { {  0.999,  -0.037,  -0.009 },
-									 {  -0.037,  0.988, 0.008 },
-									 {  -0.009, 0.008,  1.014 } };
+ float mag_softiron_matrix[3][3] = {  { 0.978, -0.035,  0.020 },
+                                   	  { -0.035,  0.987, -0.042 },
+                                   	  { 0.020, -0.042,  1.039 } };
 
- float mag_field_strength = 38.21F;
+ float mag_field_strength = 37.27F;
 
 // Offsets applied to compensate for gyro zero-drift error for x/y/z
  float gyro_zero_offsets[3]      = { 0.0F, 0.0F, 0.0F };
@@ -113,7 +129,7 @@ Adafruit_FXOS8700 accelmag = Adafruit_FXOS8700(0x8700A, 0x8700B);
 
  // Filter sample rate
  int updateFreq = 250;
- int updateTime = 1000000*(1/updateFreq);
+ int updateTime = 4000;
  int lastUpdate = 0;
 
  void getIMU()
@@ -146,24 +162,20 @@ Adafruit_FXOS8700 accelmag = Adafruit_FXOS8700(0x8700A, 0x8700B);
 	 gy *= 57.2958F;
 	 gz *= 57.2958F;
 
-		filter.update(gx, gy, gz,
-								 accel_event.acceleration.x, accel_event.acceleration.y, accel_event.acceleration.z,
-								 mx, my, mz);
+	filter.update(gx, gy, gz,
+				  accel_event.acceleration.x, accel_event.acceleration.y, accel_event.acceleration.z,
+				  mx, my, mz);
 
 	 // Degrees  
 	 pitch = filter.getRoll();
 	 roll = filter.getPitch();
-	 yaw = -1*filter.getYaw();
+	 yaw = -1*filter.getYaw(); // negative sign added to correct sign convension
 
 	 // Degrees per second 
 	 pitch_rate = gyro_event.gyro.x*(180/3.14);
 	 roll_rate = gyro_event.gyro.y*(180/3.14);
-	 yaw_rate = -1*gyro_event.gyro.z*(180/3.14);
+	 yaw_rate = -1*gyro_event.gyro.z*(180/3.14); // negative sign added to correct sign convension
 }
-
-/////////////////////////////////////////////////////////
-// PWM Variables 
-/////////////////////////////////////////////////////////
 
  /////////////////////////////////////////////////////////
  // INTERUPTS
@@ -171,27 +183,26 @@ Adafruit_FXOS8700 accelmag = Adafruit_FXOS8700(0x8700A, 0x8700B);
 
  // Timing Variables for Pulse Width
  unsigned long prev1 = 0;
- volatile unsigned long roll_ratePulse = 1500;
+ volatile unsigned int roll_ratePulse = 0;
  unsigned long prev2 = 0;
- volatile unsigned long pitch_ratePulse = 1500;
+ volatile unsigned int pitch_ratePulse = 0;
  unsigned long prev3 = 0;
- volatile unsigned long throttle_Pulse = 1500;
+ volatile unsigned int throttle_Pulse = 0;
  unsigned long prev4 = 0;
- volatile unsigned long yaw_ratePulse = 1500;
+ volatile unsigned int yaw_ratePulse = 0;
  unsigned long prev5 = 0;
- volatile unsigned long delta5 = 1500;
+ volatile unsigned int delta5 = 0;		// switch variable name to activate motors....... 
 
 
- // Get pulse timing 
-
+ // Get pulse length 
  // Roll 
  void ch1Int()
 {
   if (digitalReadFast(ch1)){
-	prev1 = micros();
+	prev1 = elapsedTime;
   }
   else{
-	roll_ratePulse = micros() - prev1;
+	roll_ratePulse = elapsedTime - prev1;
   }
 }
 
@@ -199,10 +210,10 @@ Adafruit_FXOS8700 accelmag = Adafruit_FXOS8700(0x8700A, 0x8700B);
 void ch2Int()
 {
   if (digitalReadFast(ch2)){
-	prev2 = micros();
+	prev2 = elapsedTime;
   }
   else{
-	pitch_ratePulse = micros() - prev2;
+	pitch_ratePulse = elapsedTime - prev2;
   }
 }
 
@@ -210,10 +221,10 @@ void ch2Int()
 void ch3Int()
 {
    if (digitalReadFast(ch3)){
-	prev3 = micros();
+	prev3 = elapsedTime;
    }
    else{
-	throttle_Pulse = micros() - prev3;
+	throttle_Pulse = elapsedTime - prev3;
    }  
 }
 
@@ -232,25 +243,59 @@ void ch4Int()
 void ch5Int()
 {
    if (digitalReadFast(ch5)){
-	prev5 = micros();
+	prev5 = elapsedTime;
    }
    else{
-	delta5 = micros() - prev5;
+	delta5 = elapsedTime - prev5;
    }
 }
 
-/////////////////////////////////////////////////////////
-// Controller Calibration  
-/////////////////////////////////////////////////////////
-int throttleMax;
-int throttleMin; 
 
+
+/////////////////////////////////////////////////////////
+// CONTROLLER CALIBRATION
+/////////////////////////////////////////////////////////
+
+// add hardcoded receiver values here for each channel 
+int throttleLow = 997;
+int throttleCenter = 1501;
+int throttleHigh  = 1993; 
+int throttleDiff = 0;
+
+int roll_rateLow = 1000;
 int roll_rateCenter = 1500;
+int roll_rateHigh = 2000;
 
+int pitch_rateLow = 1000;
 int pitch_rateCenter = 1500;
+int pitch_rateHigh = 2000;
 
+int yaw_rateLow = 1000;
 int yaw_rateCenter = 1500;
+int yaw_rateHigh = 1000;
 
+// COPY JOOPS CODE (JUST COMPLETED THROTTLE)
+void getPulse()
+{
+	if(throttle_Pulse > throttleCenter)
+	{
+		if(throttle_Pulse > throttleHigh)
+		{
+			throttle_Pulse = throttleHigh;
+		}
+		throttleDiff = 500*(throttle_Pulse - throttleCenter)/(throttleHigh - throttleCenter);
+		throttle_Pulse = 1500 + throttleDiff;
+	}
+	else if(throttle_Pulse < throttleCenter)
+	{
+		if(throttle_Pulse < throttleLow)
+		{
+			throttle_Pulse = throttleLow;
+		}
+		throttleDiff = 500*(throttleCenter - throttle_Pulse)/(throttleCenter - throttleLow);
+		throttle_Pulse = 1500 - throttleDiff;
+	}
+}
 
  /////////////////////////////////////////////////////////
 // PID 
@@ -261,11 +306,11 @@ int inputPitch;
 int errorPitch; 
 int pitchPulse;
 int last_errorPitch;
-int Ipitch;
+float Ipitch;
 
 int pPitch = 1;
-int dPitch = 1;
-int iPitch = 1;
+int dPitch = 18;
+int iPitch = 0;
 
 // Roll Variables 
 int inputRoll;
@@ -274,133 +319,92 @@ int rollPulse;
 int last_errorRoll;
 int Iroll;
 
-int pRoll = 1;
-int dRoll = 1;
-int iRoll = 1;
+int pRoll = pPitch;
+int dRoll = dPitch;
+int iRoll = iPitch;
 
 // Yaw Variables 
 int inputYaw;
 int errorYaw; 
 int yawPulse;
 int last_errorYaw;
+int Iyaw;
 
 int pYaw = 1;
-int dYaw = 1;
+int dYaw = 0;
+int iYaw = 0;
 
 
 
-void PID()
+void getPID()
 {
-	inputPitch = pitch_rateCenter - pitch_ratePulse;
-	errorPitch = inputPitch - pitch_rate;
-	Ipitch += iPitch*(errorPitch - last_errorPitch); 
+	// Switched to else if statement(CHECK OUTPUT OF PTICH ROLL AND YAW!!!!)
+	// JOOP PUT BOUNDS ON INTERAL TERM (So it doesn't drift to infinity)
+
+	// Pitch
+	if(pitch_ratePulse > 1508)
+	{
+		inputPitch = 1508 - pitch_ratePulse;
+	}
+
+	else if(pitch_ratePulse < 1492)
+	{
+		inputPitch = 1492 - pitch_ratePulse;
+	} 
+	
+	else
+	{
+		inputPitch = 0;
+	}
+	errorPitch = 0.33*(inputPitch - pitch_rate);
+	Ipitch += iPitch*errorPitch; 
 	pitchPulse = pPitch*errorPitch + dPitch*(errorPitch - last_errorPitch) + Ipitch;
 	last_errorPitch = errorPitch;
 
-	inputRoll = roll_ratePulse - roll_rateCenter;
-	errorRoll = inputRoll - roll_rate;
-	Iroll += iRoll*(errorRoll - last_errorRoll);
+	// Roll 
+	if(roll_ratePulse > 1508)
+	{
+		inputRoll = roll_ratePulse - 1508;
+	}
+
+	else if(roll_ratePulse < 1492)
+	{
+		inputRoll = roll_ratePulse - 1492;
+	} 
+	
+	else
+	{
+		inputRoll = 0;
+	}
+	errorRoll = 0.33*(inputRoll - roll_rate);
+	Iroll += iRoll*errorRoll;
 	rollPulse = pRoll*errorRoll + dRoll*(errorRoll - last_errorRoll) + Iroll;
 	last_errorRoll = errorRoll;
 
-	// Don't know what other gains are need here
-	inputYaw = yaw_ratePulse - yaw_rateCenter;
-	errorYaw = inputYaw - yaw_rate;
-	yawPulse = pYaw*errorYaw;
+	// Yaw
+	if(yaw_ratePulse > 1508)
+	{
+		inputYaw = yaw_ratePulse - 1508 ;
+	}
+
+	else if(yaw_ratePulse < 1492)
+	{
+		inputYaw = yaw_ratePulse - 1492 ;
+	} 
+	
+	else
+	{
+		inputYaw = 0;
+	}
+	errorYaw = 0.33*(inputYaw - yaw_rate);
+	Iyaw += iYaw*errorYaw;
+	yawPulse = pYaw*errorYaw +dYaw*(errorYaw - last_errorYaw) + Iyaw;
 	last_errorYaw = errorYaw;
-
 }
 
-
-void setup() 
+void boundPulse()
 {
-	// Set up Serial monitor 
-	if(print == true || debug == true)  
-	{
-		Serial.begin(115200);
-		while(!Serial);
-	}
-
-	// Set pin direction 
-	pinMode(ch1,INPUT);
-	pinMode(ch2,INPUT);
-	pinMode(ch3,INPUT);
-	pinMode(ch4,INPUT);
-
-	pinMode(escOut1,OUTPUT);
-	pinMode(escOut2,OUTPUT);
-	pinMode(escOut3,OUTPUT);
-	pinMode(escOut4,OUTPUT);
-
-	pinMode(led,OUTPUT);
-	pinMode(battery,INPUT);
-
-	// Initilize IMU 
-	if(!gyro.begin(GYRO_RANGE_500DPS))
-	{
-		/* There was a problem detecting the gyro ... check your connections */
-		Serial.println("Ooops, no gyro detected ... Check your wiring!");
-		while(1);
-	}
-
-	if(!accelmag.begin(ACCEL_RANGE_4G))
-	{
-		Serial.println("Ooops, no FXOS8700 detected ... Check your wiring!");
-		while(1);
-	}
-
-	filter.begin(updateFreq);
-
-	// Wait for battery to be plugged in 
-	// while(digitalRead(battery) == 0);
-
-	//Setup rx pin interrupts
-  	attachInterrupt(ch1,ch1Int,CHANGE);
-  	attachInterrupt(ch2,ch2Int,CHANGE);
-  	attachInterrupt(ch3,ch3Int,CHANGE);
-  	attachInterrupt(ch4,ch4Int,CHANGE);
-	attachInterrupt(ch5,ch5Int,CHANGE);
-	
-	// All on Timer FTM0 -> pwmFreq
-  	analogWriteFrequency(escOut1, pwmFreq);
-
-  	// Set PWM resolution
-  	analogWriteResolution(pwmRes);
-	
-	// Initialize ESCs
-  	analogWrite(escOut1, escInit);
-  	analogWrite(escOut2, escInit);
-  	analogWrite(escOut3, escInit);
-  	analogWrite(escOut4, escInit);
-  	delay(5000);
-
-	// Setup complete 
-	digitalWrite(led,HIGH);
-	Serial.println("Finished Setup");
-	delay(1000);
-
-}
-
-void loop() 
-{
-
-	if ((elapsedTime - lastUpdate) > updateTime)
-	{
-
-		lastUpdate = elapsedTime;
-		getIMU();
-
-		PID();
-
-		escPulse1 = throttle_Pulse - rollPulse + pitchPulse + yawPulse;
-		escPulse2 = throttle_Pulse - rollPulse - pitchPulse - yawPulse;
-		escPulse3 = throttle_Pulse + rollPulse - pitchPulse + yawPulse; 
-		escPulse4 = throttle_Pulse + rollPulse + pitchPulse - yawPulse;
-
-		// Set bounds on the motor Pulse 
-
-		// UpperBound 
-		if (escPulse1 > 2000)
+	if (escPulse1 > 2000)
 		{
 			escPulse1 = 2000;
 		}
@@ -440,10 +444,120 @@ void loop()
 		{
 			escPulse4 = 1100;
 		}
+}
+
+
+void setup() 
+{
+	// Set up Serial monitor 
+	if(debug == true)  
+	{
+		Serial.begin(115200);
+		while(!Serial);
+		Serial.println("DEBUGING");
+	}
+
+	// Set pin direction 
+	pinMode(ch1,INPUT);
+	pinMode(ch2,INPUT);
+	pinMode(ch3,INPUT);
+	pinMode(ch4,INPUT);
+
+	pinMode(escOut1,OUTPUT);
+	pinMode(escOut2,OUTPUT);
+	pinMode(escOut3,OUTPUT);
+	pinMode(escOut4,OUTPUT);
+
+	pinMode(led,OUTPUT);
+	pinMode(battery,INPUT);
+
+	//Setup rx pin interrupts
+  	attachInterrupt(ch1,ch1Int,CHANGE);
+  	attachInterrupt(ch2,ch2Int,CHANGE);
+  	attachInterrupt(ch3,ch3Int,CHANGE);
+  	attachInterrupt(ch4,ch4Int,CHANGE);
+	attachInterrupt(ch5,ch5Int,CHANGE);
+
+	//Check to see if the controller is turned on 
+	// while(delta5 < 1600)
+	// {
+	// 	// Fast LED until controller is turned on 
+	// 	digitalWrite(led,HIGH);
+	// 	delay(250);
+	// 	digitalWrite(led,LOW);
+	// 	delay(250);
+	// }
 
 
 
-		if(delta5 < 1100)
+	// Initilize IMU 
+	if(!gyro.begin(GYRO_RANGE_500DPS))
+	{
+		/* There was a problem detecting the gyro ... check your connections */
+		Serial.println("Ooops, no gyro detected ... Check your wiring!");
+		while(1);
+	}
+
+	if(!accelmag.begin(ACCEL_RANGE_4G))
+	{
+		Serial.println("Ooops, no FXOS8700 detected ... Check your wiring!");
+		while(1);
+	}
+
+	filter.begin(updateFreq);
+
+	// Wait for battery to be plugged in 
+	// while(digitalRead(battery) == 0);
+
+	
+	// All on Timer FTM0 -> pwmFreq
+  	analogWriteFrequency(escOut1, pwmFreq);
+
+  	// Set PWM resolution
+  	analogWriteResolution(pwmRes);
+	
+	// Initialize ESCs
+  	analogWrite(escOut1, escInit);
+  	analogWrite(escOut2, escInit);
+  	analogWrite(escOut3, escInit);
+  	analogWrite(escOut4, escInit);
+  	delay(5000);
+	Serial.println("ESC Initialization completed");
+
+	
+
+
+	// Setup complete 
+	digitalWrite(led,HIGH);
+	Serial.println("Finished Setup");
+	delay(1000);
+
+}
+
+void loop() 
+{
+
+	if ((elapsedTime - lastUpdate) > updateTime)
+	{
+
+		lastUpdate = elapsedTime;
+
+		// Get the rates and angles
+		getIMU();
+
+		// getPulse(); CURRENTLY DOES NOT WORK
+
+		getPID();
+
+		escPulse1 = throttle_Pulse - rollPulse + pitchPulse + yawPulse;
+		escPulse2 = throttle_Pulse - rollPulse - pitchPulse - yawPulse;
+		escPulse3 = throttle_Pulse + rollPulse - pitchPulse + yawPulse; 
+		escPulse4 = throttle_Pulse + rollPulse + pitchPulse - yawPulse;
+
+		boundPulse();
+
+		// Turn quad on or off 
+		if(delta5 < 1110)
 		{
 			escPulse1 = 1000;
 			escPulse2 = 1000;
@@ -451,22 +565,26 @@ void loop()
 			escPulse4 = 1000;
 		}
 
-		// Convert Mircosecond time to PWM pulse 
+		// Convert Mircosecond time to PWM pulse for motors
 		escPulse1PWM = escPulse1*pwmMax/escPulseTime;
 		escPulse2PWM = escPulse2*pwmMax/escPulseTime;
 		escPulse3PWM = escPulse3*pwmMax/escPulseTime;
 		escPulse4PWM = escPulse4*pwmMax/escPulseTime;
 
+		// Send PWM pulse to motors
 		analogWrite(escOut1, escPulse1PWM);
   		analogWrite(escOut2, escPulse2PWM);
   		analogWrite(escOut3, escPulse3PWM);
   		analogWrite(escOut4, escPulse4PWM);
 	}	
 
-
-	if ((elapsedTime - lastPrint) >= printTimer || print == true)
+	if (debug == true)
 	{
-		Serial.println(escPulse1);
+		// Print variables here 
+		if ((elapsedTime - lastPrint) >= printTimer)
+		{
+			lastPrint = elapsedTime;
+			Serial.println(escPulse4);
+		}
 	}
-
 }
