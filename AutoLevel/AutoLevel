@@ -15,13 +15,12 @@
 */
 
 // TODO'S 
-/* 4-5-19
- * 1. ASK KIETH ABOUT YAW(NOT WORKING PROPERLY BUT NOT NEEDED FOR PID) 
- * 2.  FIND A TO MAKE PULSE 1000 IF CONTROLLER IS NOT ON (NOT WORKING)
- * 3. CHECK CONTROLLER CALIBRATION CODE TO SEE IF SCALING WORKS(NOT WORKING) 
- * 3a. GET GOOD IMU READINGS 
- * 4. PUT PROPELLERS ON AND TEST TO SEE IF CONTROLLER IS WORKING(YES) 
- * 6. Find why: warning: comparison between signed and unsigned integer expressions(ASK MIKE)
+/* 4-10-19
+ * 1. FIND A TO MAKE PULSE 1000 IF CONTROLLER IS NOT ON (KEITH)
+ * 2. CHECK CONTROLLER CALIBRATION CODE TO SEE IF SCALING WORKS(NOT WORKING)
+ * 3. ADD LIMIT ON INTEGRAL, ADD LIMIT ON MAX OUTPUT, SCALE THE CONTROLLER 
+ * 4. Find why: warning: comparison between signed and unsigned integer expressions(ASK MIKE)
+ * 5. ADD CODE TO NOT RUN UNTIL BATTERY IS PLUGGED IN
 */ 
 
 /////////////////////////////////////////////////////////
@@ -45,7 +44,8 @@ elapsedMicros elapsedTime;
 /////////////////////////////////////////////////////////
 //SWITCHS
 /////////////////////////////////////////////////////////
-bool debug = false; 
+bool debug = true; 
+bool autoLevel = true;
 
 int printTimer = 5000;
 int lastPrint = 0;
@@ -70,7 +70,7 @@ int escOut4 = 20;
 // led 
 int led = 13; 
 
-// Battery ///NEED TO ADD CODE TO ACCOUNT FOR START OF MOTORS AND BATTERY PLUG IN 
+// Battery 
 int battery = 2;
 
 /////////////////////////////////////////////////////////
@@ -101,7 +101,6 @@ int battery = 2;
  /////////////////////////////////////////////////////////
 // IMU 
 /////////////////////////////////////////////////////////
-
  float pitch, roll, yaw;
  float pitch_rate, roll_rate, yaw_rate;
 
@@ -195,6 +194,7 @@ Adafruit_FXOS8700 accelmag = Adafruit_FXOS8700(0x8700A, 0x8700B);
 
 
  // Get pulse length 
+
  // Roll 
  void ch1Int()
 {
@@ -253,10 +253,14 @@ void ch5Int()
 
 
 /////////////////////////////////////////////////////////
-// CONTROLLER CALIBRATION
+// CONTROLLER CALIBRATION (CURRENTLY NOT USING)
 /////////////////////////////////////////////////////////
+// Since the hand held controller does not always send pulses from 1000-2000 we need scale the values
+// so they fall into the proper range
 
-// add hardcoded receiver values here for each channel 
+// add hardcoded receiver values here for each channel might try switching to float
+
+// Variables
 int throttleLow = 997;
 int throttleCenter = 1501;
 int throttleHigh  = 1993; 
@@ -274,7 +278,7 @@ int yaw_rateLow = 1000;
 int yaw_rateCenter = 1500;
 int yaw_rateHigh = 1000;
 
-// COPY JOOPS CODE (JUST COMPLETED THROTTLE)
+
 void getPulse()
 {
 	if(throttle_Pulse > throttleCenter)
@@ -296,52 +300,27 @@ void getPulse()
 		throttle_Pulse = 1500 - throttleDiff;
 	}
 }
-
- /////////////////////////////////////////////////////////
-// PID 
 /////////////////////////////////////////////////////////
+// INPUT  
+/////////////////////////////////////////////////////////
+// Calculate the input signal needed to be sent the the PID function
 
-// Pitch Variables 
+// Variables
+
+// Pitch
+int autoPitch = 0; 
 int inputPitch;
-int errorPitch; 
-int pitchPulse;
-int last_errorPitch;
-float Ipitch;
 
-int pPitch = 1;
-int dPitch = 18;
-int iPitch = 0;
-
-// Roll Variables 
+// Roll 
+int autoRoll = 0;
 int inputRoll;
-int errorRoll; 
-int rollPulse;
-int last_errorRoll;
-int Iroll;
 
-int pRoll = pPitch;
-int dRoll = dPitch;
-int iRoll = iPitch;
-
-// Yaw Variables 
+// Yaw
 int inputYaw;
-int errorYaw; 
-int yawPulse;
-int last_errorYaw;
-int Iyaw;
 
-int pYaw = 1;
-int dYaw = 0;
-int iYaw = 0;
-
-
-
-void getPID()
+void getInput()
 {
-	// Switched to else if statement(CHECK OUTPUT OF PTICH ROLL AND YAW!!!!)
-	// JOOP PUT BOUNDS ON INTERAL TERM (So it doesn't drift to infinity)
-
-	// Pitch
+	// Pitch bandwith of 16
 	if(pitch_ratePulse > 1508)
 	{
 		inputPitch = 1508 - pitch_ratePulse;
@@ -356,12 +335,9 @@ void getPID()
 	{
 		inputPitch = 0;
 	}
-	errorPitch = 0.33*(inputPitch - pitch_rate);
-	Ipitch += iPitch*errorPitch; 
-	pitchPulse = pPitch*errorPitch + dPitch*(errorPitch - last_errorPitch) + Ipitch;
-	last_errorPitch = errorPitch;
+	autoPitch = 15*pitch;
 
-	// Roll 
+	// Roll bandwith of 16
 	if(roll_ratePulse > 1508)
 	{
 		inputRoll = roll_ratePulse - 1508;
@@ -376,12 +352,7 @@ void getPID()
 	{
 		inputRoll = 0;
 	}
-	errorRoll = 0.33*(inputRoll - roll_rate);
-	Iroll += iRoll*errorRoll;
-	rollPulse = pRoll*errorRoll + dRoll*(errorRoll - last_errorRoll) + Iroll;
-	last_errorRoll = errorRoll;
-
-	// Yaw
+	// Yaw bandwidth of 16
 	if(yaw_ratePulse > 1508)
 	{
 		inputYaw = yaw_ratePulse - 1508 ;
@@ -396,60 +367,153 @@ void getPID()
 	{
 		inputYaw = 0;
 	}
-	errorYaw = 0.33*(inputYaw - yaw_rate);
+
+	inputYaw /= 3;
+
+	// AutoLevel
+
+	autoPitch = 15*pitch;
+	autoRoll = 15*roll;
+
+	if (autoLevel == false)
+	{
+		autoPitch = 0;
+		autoRoll = 0;
+	}
+
+	inputPitch -= autoPitch;
+	inputPitch /= 3; 
+
+	inputRoll -= autoRoll;
+	inputRoll /= 3;
+
+}
+
+/////////////////////////////////////////////////////////
+// PID 
+/////////////////////////////////////////////////////////
+// Controller corrects for angular rates to converge to desired
+
+// Variables
+
+// Pitch 
+int errorPitch; 
+int pitchPulse;
+int last_errorPitch;
+float Ipitch;
+
+int pPitch = 1;
+int dPitch = 18;
+int iPitch = .04;
+
+// Roll
+int errorRoll; 
+int rollPulse;
+int last_errorRoll;
+int Iroll;
+
+int pRoll = pPitch;
+int dRoll = dPitch;
+int iRoll = iPitch;
+
+// Yaw 
+int errorYaw; 
+int yawPulse;
+int last_errorYaw;
+int Iyaw;
+
+int pYaw = 1;
+int dYaw = 0;
+int iYaw = 0;
+
+
+
+void getPID()
+{
+
+	// Pitch
+	errorPitch = inputPitch - pitch_rate;
+	Ipitch += iPitch*errorPitch; 
+	pitchPulse = pPitch*errorPitch + dPitch*(errorPitch - last_errorPitch) + Ipitch;
+	last_errorPitch = errorPitch;
+
+	// Roll 
+	errorRoll = inputRoll - roll_rate;
+	Iroll += iRoll*errorRoll;
+	rollPulse = pRoll*errorRoll + dRoll*(errorRoll - last_errorRoll) + Iroll;
+	last_errorRoll = errorRoll;
+
+	// Yaw
+	errorYaw = inputYaw - yaw_rate;
 	Iyaw += iYaw*errorYaw;
 	yawPulse = pYaw*errorYaw +dYaw*(errorYaw - last_errorYaw) + Iyaw;
 	last_errorYaw = errorYaw;
 }
 
+/////////////////////////////////////////////////////////
+// BOUND PULSE
+/////////////////////////////////////////////////////////
+// This is a safey feature in the code so the pulses sent to motors won't exced the
+// the max of min of the motors 
+
+// Variables 
+int minPulse = 1200;
+int maxPulse = 2000;
+
+
 void boundPulse()
 {
-	if (escPulse1 > 2000)
+	if (escPulse1 > maxPulse)
 		{
-			escPulse1 = 2000;
+			escPulse1 = maxPulse;
 		}
 
-		if (escPulse2 > 2000)
+		if (escPulse2 > maxPulse)
 		{
-			escPulse2 = 2000;
+			escPulse2 = maxPulse;
 		}
 
-		if (escPulse3 > 2000)
+		if (escPulse3 > maxPulse)
 		{
-			escPulse3 = 2000;
+			escPulse3 = maxPulse;
 		}
 
-		if (escPulse4 > 2000)
+		if (escPulse4 > maxPulse)
 		{
-			escPulse4 = 2000;
+			escPulse4 = maxPulse;
 		}
 
 		// LowerBound 
-		if (escPulse1 < 1100)
+		if (escPulse1 < minPulse)
 		{
-			escPulse1 = 1100;
+			escPulse1 = minPulse;
 		}
 
-		if (escPulse2 < 1100)
+		if (escPulse2 < minPulse)
 		{
-			escPulse2 = 1100;
+			escPulse2 = minPulse;
 		}
 
-		if (escPulse3 < 1100)
+		if (escPulse3 < minPulse)
 		{
-			escPulse3 = 1100;
+			escPulse3 = minPulse;
 		}
 
-		if (escPulse4 < 1100)
+		if (escPulse4 < minPulse)
 		{
-			escPulse4 = 1100;
+			escPulse4 = minPulse;
 		}
 }
 
 
+/////////////////////////////////////////////////////////
+// SETUP
+/////////////////////////////////////////////////////////
+// Get ready to fly
+
 void setup() 
 {
-	// Set up Serial monitor 
+	// Do you want to debug?
 	if(debug == true)  
 	{
 		Serial.begin(115200);
@@ -458,58 +522,63 @@ void setup()
 	}
 
 	// Set pin direction 
+
+	// Reciever 
 	pinMode(ch1,INPUT);
 	pinMode(ch2,INPUT);
 	pinMode(ch3,INPUT);
 	pinMode(ch4,INPUT);
 
+	// Escs
 	pinMode(escOut1,OUTPUT);
 	pinMode(escOut2,OUTPUT);
 	pinMode(escOut3,OUTPUT);
 	pinMode(escOut4,OUTPUT);
 
+	// Battery and led 
 	pinMode(led,OUTPUT);
 	pinMode(battery,INPUT);
 
-	//Setup rx pin interrupts
+	// Setup rx pin interrupts
   	attachInterrupt(ch1,ch1Int,CHANGE);
   	attachInterrupt(ch2,ch2Int,CHANGE);
   	attachInterrupt(ch3,ch3Int,CHANGE);
   	attachInterrupt(ch4,ch4Int,CHANGE);
 	attachInterrupt(ch5,ch5Int,CHANGE);
 
-	//Check to see if the controller is turned on 
-	// while(delta5 < 1600)
-	// {
-	// 	// Fast LED until controller is turned on 
-	// 	digitalWrite(led,HIGH);
-	// 	delay(250);
-	// 	digitalWrite(led,LOW);
-	// 	delay(250);
-	// }
-
 
 
 	// Initilize IMU 
-	if(!gyro.begin(GYRO_RANGE_500DPS))
+
+	// Gyro
+	while(!gyro.begin(GYRO_RANGE_500DPS))
 	{
-		/* There was a problem detecting the gyro ... check your connections */
 		Serial.println("Ooops, no gyro detected ... Check your wiring!");
-		while(1);
+		digitalWrite(led,HIGH);
+		delay(250);
+		digitalWrite(led,LOW);	
+		delay(250);
 	}
 
-	if(!accelmag.begin(ACCEL_RANGE_4G))
+	// Accellerometer
+
+	while(!accelmag.begin(ACCEL_RANGE_4G))
 	{
 		Serial.println("Ooops, no FXOS8700 detected ... Check your wiring!");
-		while(1);
+		digitalWrite(led,HIGH);
+		delay(250);
+		digitalWrite(led,LOW);	
+		delay(250);
 	}
 
+	// Filter for IMU 
 	filter.begin(updateFreq);
 
 	// Wait for battery to be plugged in 
 	// while(digitalRead(battery) == 0);
 
-	
+	// Set up motors 
+
 	// All on Timer FTM0 -> pwmFreq
   	analogWriteFrequency(escOut1, pwmFreq);
 
@@ -522,10 +591,27 @@ void setup()
   	analogWrite(escOut3, escInit);
   	analogWrite(escOut4, escInit);
   	delay(5000);
-	Serial.println("ESC Initialization completed");
+	Serial.println("ESC Initialization completed");	
 
-	
+	// Check to see if the controller is turned on(KEITH)
+	// while(delta5 < 1600)
+	// {
+	// 	// Fast LED until controller is turned on 
+	// 	digitalWrite(led,HIGH);
+	// 	delay(250);
+	// 	digitalWrite(led,LOW);
+	// 	delay(250);
+	// }
 
+	// Make sure delta five is in low position otherwise motor will fire off the start 
+	while(delta5 > 1010 && delta5 > 980)
+	{
+		Serial.println("Set delta to zero");
+		digitalWrite(led,HIGH);
+		delay(500);
+		digitalWrite(led,LOW);
+		delay(500);
+	}
 
 	// Setup complete 
 	digitalWrite(led,HIGH);
@@ -547,7 +633,10 @@ void loop()
 
 		// getPulse(); CURRENTLY DOES NOT WORK
 
+		getInput();
+
 		getPID();
+
 
 		escPulse1 = throttle_Pulse - rollPulse + pitchPulse + yawPulse;
 		escPulse2 = throttle_Pulse - rollPulse - pitchPulse - yawPulse;
@@ -557,7 +646,7 @@ void loop()
 		boundPulse();
 
 		// Turn quad on or off 
-		if(delta5 < 1110)
+		if(delta5 < 1100)
 		{
 			escPulse1 = 1000;
 			escPulse2 = 1000;
@@ -584,7 +673,8 @@ void loop()
 		if ((elapsedTime - lastPrint) >= printTimer)
 		{
 			lastPrint = elapsedTime;
-			Serial.println(escPulse4);
+			Serial.print(escPulse1);
+			Serial.println(pitch_rate);
 		}
 	}
 }
