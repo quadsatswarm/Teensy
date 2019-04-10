@@ -44,7 +44,7 @@ elapsedMicros elapsedTime;
 /////////////////////////////////////////////////////////
 //SWITCHS
 /////////////////////////////////////////////////////////
-bool debug = true; 
+bool debug = false; 
 bool autoLevel = true;
 
 int printTimer = 5000;
@@ -101,7 +101,9 @@ int battery = 2;
  /////////////////////////////////////////////////////////
 // IMU 
 /////////////////////////////////////////////////////////
- float pitch, roll, yaw;
+ float pitch = 10;
+ float roll = 10;
+ float yaw;
  float pitch_rate, roll_rate, yaw_rate;
 
 Adafruit_FXAS21002C gyro = Adafruit_FXAS21002C(0x0021002C);
@@ -114,8 +116,8 @@ Adafruit_FXOS8700 accelmag = Adafruit_FXOS8700(0x8700A, 0x8700B);
 
 // Soft iron error compensation matrix
  float mag_softiron_matrix[3][3] = {  { 0.978, -0.035,  0.020 },
-                                   	  { -0.035,  0.987, -0.042 },
-                                   	  { 0.020, -0.042,  1.039 } };
+								   	  { -0.035,  0.987, -0.042 },
+								   	  { 0.020, -0.042,  1.039 } };
 
  float mag_field_strength = 37.27F;
 
@@ -422,9 +424,9 @@ int yawPulse;
 int last_errorYaw;
 int Iyaw;
 
-int pYaw = 1;
+int pYaw = 4;
 int dYaw = 0;
-int iYaw = 0;
+int iYaw = 0.02;
 
 
 
@@ -574,10 +576,38 @@ void setup()
 	// Filter for IMU 
 	filter.begin(updateFreq);
 
+	// Wait for IMU to steady 
+	Serial.println("Steady IMU");
+	digitalWrite(led,HIGH);
+	for (int loop = 0; loop < 3000; loop++){
+		if ((elapsedTime - lastUpdate) > updateTime)
+		{
+			getIMU();
+		}
+	}
+
+	while(pitch > 2 || pitch < -2 )
+	{
+
+		if ((elapsedTime - lastUpdate) > updateTime)
+		{
+			getIMU();
+		}
+		if ((elapsedTime - lastPrint) >= printTimer)
+		{
+			lastPrint = elapsedTime;
+			Serial.println(pitch);
+		}
+	}
+	digitalWrite(led,HIGH);
+	Serial.println("Finished Steadying IMU");
+
+
 	// Wait for battery to be plugged in 
 	// while(digitalRead(battery) == 0);
 
 	// Set up motors 
+
 
 	// All on Timer FTM0 -> pwmFreq
   	analogWriteFrequency(escOut1, pwmFreq);
@@ -673,8 +703,7 @@ void loop()
 		if ((elapsedTime - lastPrint) >= printTimer)
 		{
 			lastPrint = elapsedTime;
-			Serial.print(escPulse1);
-			Serial.println(pitch_rate);
+			Serial.println(pitch);
 		}
 	}
 }
