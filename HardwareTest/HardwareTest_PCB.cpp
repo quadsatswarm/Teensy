@@ -390,7 +390,8 @@ void setup() {
   attachInterrupt(ch2,ch2Int,CHANGE);
   attachInterrupt(ch3,ch3Int,CHANGE);
   attachInterrupt(ch4,ch4Int,CHANGE);
-
+  attachInterrupt(ch5,ch5Int,CHANGE);
+  attachInterrupt(ch6,ch6Int,CHANGE);
   attachInterrupt(txOn,transmitterTimer,CHANGE);
   
   // All on Timer FTM0 -> pwmFreq
