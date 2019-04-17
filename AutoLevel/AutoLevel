@@ -42,6 +42,7 @@
 
 // TODO'S 
 /* 4-12-19
+ * 1a. ADD CALIRBATION CODE FOR THE IMU. (2000 READINGS AND AVERAGE)
  * 1. FIND A TO MAKE PULSE 1000 IF CONTROLLER IS NOT ON (KEITH)
  * 2. CHECK CONTROLLER CALIBRATION CODE TO SEE IF SCALING WORKS(NOT WORKING)
  * 3. ADD LIMIT ON INTEGRAL, ADD LIMIT ON MAX OUTPUT, SCALE THE CONTROLLER 
@@ -69,7 +70,7 @@ elapsedMicros elapsedTime;
 /////////////////////////////////////////////////////////
 //SWITCHS
 /////////////////////////////////////////////////////////
-bool debug = true; 
+bool debug = false; 
 bool autoLevel = true;
 
 int printTimer = 5000;
@@ -123,7 +124,7 @@ int led = 13;
  /////////////////////////////////////////////////////////
 // IMU 
 /////////////////////////////////////////////////////////
-// The IMU is used to get angular rates and angles
+// The IMU is used to get rates and angles
 
  float pitch = 10;
  float roll = 10;
@@ -296,17 +297,20 @@ int throttleDiff = 0;
 int roll_rateLow = 1000;
 int roll_rateCenter = 1500;
 int roll_rateHigh = 2000;
+int roll_rateDiff = 0;
 
 int pitch_rateLow = 1000;
 int pitch_rateCenter = 1500;
 int pitch_rateHigh = 2000;
+int pitch_rateDiff = 0;
 
 int yaw_rateLow = 1000;
 int yaw_rateCenter = 1500;
-int yaw_rateHigh = 1000;
+int yaw_rateHigh = 2000;
+int yaw_rateDiff = 0;
 
 
-void getPulse()
+void scalePulse()
 {
 	if(throttle_Pulse > throttleCenter)
 	{
@@ -484,7 +488,7 @@ void getPID()
 // max is 2000. 
 
 // Variables 
-int minPulse = 1200;
+int minPulse = 1100;
 int maxPulse = 2000;
 
 
@@ -675,7 +679,8 @@ void loop()
 		// Get the rates and angles
 		getIMU();
 
-		// getPulse(); CURRENTLY DOES NOT WORK
+		// Scale the pulse from 1000-2000
+		//scalePulse(); //CURRENTLY DOES NOT WORK
 
 		// Get the input pulse for the PID 
 		getInput();
@@ -701,7 +706,7 @@ void loop()
 			escPulse4 = 1000;
 		}
 
-		// Convert Mircosecond time to PWM pulse for motors(CREATE KNEW FUNCTION WILL NEXT LINES)
+		// Convert Mircosecond time to PWM pulse for motors(CREATE NEW FUNCTION WILL NEXT LINES)
 		escPulse1PWM = escPulse1*pwmMax/escPulseTime;
 		escPulse2PWM = escPulse2*pwmMax/escPulseTime;
 		escPulse3PWM = escPulse3*pwmMax/escPulseTime;
@@ -720,7 +725,7 @@ void loop()
 		if ((elapsedTime - lastPrint) >= printTimer)
 		{
 			lastPrint = elapsedTime;
-			Serial.println(pitch_ratePulse);
+			Serial.println(pitch);
 		}
 	}
 }
