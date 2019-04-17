@@ -1,4 +1,6 @@
 import math
+from re import split
+
 import numpy
 import struct
 from digi.xbee.devices import XBeeDevice
@@ -8,7 +10,6 @@ import warnings
 
 # Variables for artificial position field calculations
 AGENT_COUNT = 1  # Number of Agents/Quadcopters in use
-MAX_AGENT_COUNT = 8 # Maximum number of agents for consistent reads
 NODE_COUNT = 1  # Number of Attractive Nodes
 DIMENSION_COUNT = 3  # Dimensions
 
@@ -119,8 +120,8 @@ def swarm_next_location(node_locations, agents_locations, agents_velocities) -> 
 
     # Gains
     # Sliding Mode Control constants
-    c = numpy.zeros((MAX_AGENT_COUNT, DIMENSION_COUNT))
-    k = numpy.zeros((MAX_AGENT_COUNT, DIMENSION_COUNT))
+    c = numpy.zeros((AGENT_COUNT, DIMENSION_COUNT))
+    k = numpy.zeros((AGENT_COUNT, DIMENSION_COUNT))
 
     # row by row multiplication
     for agent_it_1 in range(AGENT_COUNT):
@@ -171,7 +172,27 @@ XBEE_PORT = 'COM9'  # TODO: This will need to change most likely depending on wh
 BAUD_RATE = 9600
 device = XBeeDevice(XBEE_PORT, BAUD_RATE)
 device.open()
-device.set_sync_ops_timeout(10) # 10 second timeout
+device.set_sync_ops_timeout(10)  # 10 second timeout
+xbee_network = device.get_network()
+
+# Array of Xbee MAC Addresses
+# Index corresponds to index for swarm control result as well
+QUAD_REMOTE_NODES_ID = ["REMOTE"]
+QUAD_XBEE_DEVICES = numpy.empty(AGENT_COUNT, dtype=object)
+
+for i in range(AGENT_COUNT):
+    QUAD_XBEE_DEVICES[i] = xbee_network.discover_device(QUAD_REMOTE_NODES_ID[i])
+
+
+def send_swarm_control(swarm_control_signal: numpy.ndarray):
+    for i in range(AGENT_COUNT):
+        swarm_control_signal[0][0] = 352233545.2139234904329012
+        cur = numpy.array2string(swarm_control_signal[i], separator=',')
+        # cur = swarm_control_signal[i]
+        print(cur)
+        # x = struct.pack("fff", cur[0], cur[1], cur[2])
+        # print(x)
+        device.send_data_broadcast(cur)
 
 
 def update_agent_loc(xbee_message):
@@ -182,8 +203,8 @@ def update_agent_loc(xbee_message):
     :return nothing
     """
     xbee_data = xbee_message.data
-    print (xbee_data)
-    fmt = "illl" # this formatting should change depending on the type of GPS values i.e., longs doubles, etc.
+    print(xbee_data)
+    fmt = "iiii"  # this formatting should change depending on the type of GPS values i.e., longs doubles, etc.
     # print(fmt)
     print(list(struct.unpack(fmt, xbee_data)))
     tmp_arr = list(struct.unpack(fmt, xbee_message.data))
@@ -199,10 +220,8 @@ device.add_data_received_callback(update_agent_loc)
 while True:
     # t1 = time.time()
     ret = swarm_next_location(NODE_LOC, AGENT_LOC, agents_vel)
-    # retString = numpy.array2string(ret)
-    retBytes = ret.tobytes()
-    print(ret)
-    print(retBytes)
-    device.send_data_broadcast(retBytes)
-    time.sleep(5)
+    # retString = numpy.array2string(ret, separator=',')
+    send_swarm_control(ret)
+    # device.send_data_broadcast(retString)
+    # time.sleep(5)
     # print(time.time() - t1)
