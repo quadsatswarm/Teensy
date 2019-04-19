@@ -70,8 +70,8 @@ elapsedMicros elapsedTime;
 /////////////////////////////////////////////////////////
 //SWITCHS
 /////////////////////////////////////////////////////////
-bool debug = false; 
-bool autoLevel = true;
+bool debug = true; 
+bool autoLevel = false;
 
 int printTimer = 5000;
 int lastPrint = 0;
@@ -126,10 +126,22 @@ int led = 13;
 /////////////////////////////////////////////////////////
 // The IMU is used to get rates and angles
 
+// Angles and Rates
  float pitch = 10;
  float roll = 10;
  float yaw;
  float pitch_rate, roll_rate, yaw_rate;
+
+ // Offsets
+ float offsetPitch = 0;
+ float offsetRoll = 0;
+ float offsetYaw = 0;
+
+ float offsetPitch_rate = 0;
+ float offsetRoll_rate = 0;
+ float offsetYaw_rate = 0;
+
+
 
 Adafruit_FXAS21002C gyro = Adafruit_FXAS21002C(0x0021002C);
 Adafruit_FXOS8700 accelmag = Adafruit_FXOS8700(0x8700A, 0x8700B);
@@ -193,14 +205,58 @@ Adafruit_FXOS8700 accelmag = Adafruit_FXOS8700(0x8700A, 0x8700B);
 				  mx, my, mz);
 
 	 // Degrees  
-	 pitch = filter.getRoll();
-	 roll = filter.getPitch();
-	 yaw = -1*filter.getYaw(); 						// negative sign added to correct sign convention
+	 pitch = filter.getRoll() - offsetPitch;
+	 roll = filter.getPitch() - offsetRoll;
+	 yaw = -1*filter.getYaw() - offsetYaw; 						// negative sign added to correct sign convention
 
 	 // Degrees per second 
-	 pitch_rate = gyro_event.gyro.x*(180/3.14);
-	 roll_rate = gyro_event.gyro.y*(180/3.14);
-	 yaw_rate = -1*gyro_event.gyro.z*(180/3.14);    // negative sign added to correct sign convention
+	 pitch_rate = gyro_event.gyro.x*(180/3.14) - offsetPitch_rate;
+	 roll_rate = gyro_event.gyro.y*(180/3.14) - offsetRoll_rate;
+	 yaw_rate = -1*gyro_event.gyro.z*(180/3.14) - offsetYaw_rate;    // negative sign added to correct sign convention
+}
+
+// Zero Readings 
+
+// Variables
+float sumPitch = 0;
+float sumRoll = 0;
+int sumYaw = 0;
+
+float sumPitch_rate = 0;
+float sumRoll_rate = 0;
+float sumYaw_rate = 0;
+
+void calIMU()
+{
+	for (int loop = 0; loop < 2000; loop++)
+	{
+		if((elapsedTime - lastUpdate) > updateTime)
+		{
+			// Grab angles
+			getIMU();
+
+			// Sum angles
+			sumPitch += pitch;
+			sumRoll += roll;
+			sumYaw += yaw;
+
+			// Sum rates
+			sumPitch_rate += pitch_rate;
+			sumRoll_rate += roll_rate;
+			sumYaw_rate += yaw_rate;
+
+		}
+	}
+
+	// Calculate offsets
+	offsetPitch = sumPitch/2000;
+	offsetRoll = sumRoll/2000;
+	offsetYaw = sumYaw/2000;
+
+	offsetPitch_rate = sumPitch/2000;
+	offsetRoll_rate = sumRoll/2000;
+	offsetYaw_rate = sumYaw/2000;
+	
 }
 
  /////////////////////////////////////////////////////////
@@ -219,7 +275,6 @@ Adafruit_FXOS8700 accelmag = Adafruit_FXOS8700(0x8700A, 0x8700B);
  volatile unsigned int yaw_ratePulse = 1500;
  unsigned long prev5 = 0;
  volatile unsigned int delta5 = 1500;		// switch variable name to activate motors....... 
-
 
  // Get pulse length 
 
@@ -432,9 +487,9 @@ int pitchPulse;
 int last_errorPitch;
 float Ipitch;
 
-int pPitch = 1;
+int pPitch = 4;
 int dPitch = 18;
-int iPitch = .04;
+int iPitch = .02;
 
 // Roll
 int errorRoll; 
@@ -458,6 +513,7 @@ int iYaw = 0.02;
 
 
 
+
 void getPID()
 {
 
@@ -465,7 +521,7 @@ void getPID()
 	errorPitch = inputPitch - pitch_rate;
 	Ipitch += iPitch*errorPitch; 
 	pitchPulse = pPitch*errorPitch + dPitch*(errorPitch - last_errorPitch) + Ipitch;
-	last_errorPitch = errorPitch;
+	last_errorPitch = errorPitch; 
 
 	// Roll 
 	errorRoll = inputRoll - roll_rate;
@@ -473,11 +529,13 @@ void getPID()
 	rollPulse = pRoll*errorRoll + dRoll*(errorRoll - last_errorRoll) + Iroll;
 	last_errorRoll = errorRoll;
 
+
 	// Yaw
 	errorYaw = inputYaw - yaw_rate;
 	Iyaw += iYaw*errorYaw;
 	yawPulse = pYaw*errorYaw +dYaw*(errorYaw - last_errorYaw) + Iyaw;
 	last_errorYaw = errorYaw;
+
 }
 
 /////////////////////////////////////////////////////////
@@ -585,8 +643,6 @@ void setup()
   	attachInterrupt(ch4,ch4Int,CHANGE);
 	attachInterrupt(ch5,ch5Int,CHANGE);
 
-	//KEITH'S RECIEVER HACK GOES HERE(CHECK TO SEE IF HAND HELD IS CONNECTED) 
-
 	// Make sure delta five is in low position otherwise motor will fire off at start up 
 	Serial.println(delta5);
 	while(delta5 > 1010)
@@ -616,33 +672,33 @@ void setup()
 	filter.begin(updateFreq);
 
 	// Wait for IMU to steady 
-	Serial.println("Steady IMU");
-	digitalWrite(led,HIGH);
+	// Serial.println("Steady IMU");
+	// digitalWrite(led,HIGH);
 
 	// Wait for IMU to warm up
-	for (int loop = 0; loop < 3000; loop++){
-		if ((elapsedTime - lastUpdate) > updateTime)
-		{
-			getIMU();
-		}
-	}
+	// for (int loop = 0; loop < 3000; loop++){
+	// 	if ((elapsedTime - lastUpdate) > updateTime)
+	// 	{
+	// 		getIMU();
+	// 	}
+	// }
 
-	// Wait for values to settle
-	while(pitch > 2 || pitch < -2 )
-	{
+	// // Wait for values to settle
+	// while(pitch > 2 || pitch < -2 )
+	// {
 
-		if ((elapsedTime - lastUpdate) > updateTime)
-		{
-			getIMU();
-		}
-		if ((elapsedTime - lastPrint) >= printTimer)
-		{
-			lastPrint = elapsedTime;
-			Serial.println(pitch);
-		}
-	}
-	Serial.println("Finished Steadying IMU");
-	digitalWrite(led,LOW);
+	// 	if ((elapsedTime - lastUpdate) > updateTime)
+	// 	{
+	// 		getIMU();
+	// 	}
+	// 	if ((elapsedTime - lastPrint) >= printTimer)
+	// 	{
+	// 		lastPrint = elapsedTime;
+	// 		Serial.println(pitch);
+	// 	}
+	// }
+	// Serial.println("Finished Steadying IMU");
+	// digitalWrite(led,LOW);
 
 	// Set up motors 
 	// All on Timer FTM0 -> pwmFreq
@@ -725,7 +781,6 @@ void loop()
 		if ((elapsedTime - lastPrint) >= printTimer)
 		{
 			lastPrint = elapsedTime;
-			Serial.println(pitch);
 		}
 	}
 }
