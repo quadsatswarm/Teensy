@@ -42,12 +42,8 @@
 
 // TODO'S 
 /* 4-12-19
- * 1a. ADD CALIRBATION CODE FOR THE IMU. (2000 READINGS AND AVERAGE)
- * 1. FIND A TO MAKE PULSE 1000 IF CONTROLLER IS NOT ON (KEITH)
- * 2. CHECK CONTROLLER CALIBRATION CODE TO SEE IF SCALING WORKS(NOT WORKING)
- * 3. ADD LIMIT ON INTEGRAL, ADD LIMIT ON MAX OUTPUT, SCALE THE CONTROLLER 
- * 4. Find why: warning: comparison between signed and unsigned integer expressions(ASK MIKE)
- * 5. ADD CODE TO NOT RUN UNTIL BATTERY IS PLUGGED IN
+ * 1. FIND OFFSETS OF ANGULAR RATES 
+ * 2. ANGLES TAKE ABOUT 65 SECONDS TO STEADY 
 */ 
 
 /////////////////////////////////////////////////////////
@@ -70,9 +66,10 @@ elapsedMicros elapsedTime;
 /////////////////////////////////////////////////////////
 //SWITCHS
 /////////////////////////////////////////////////////////
-bool debug = true; 
-bool autoLevel = false;
+bool debug = false; 
+bool autoLevel = true;
 
+// Variables for debugging
 int printTimer = 5000;
 int lastPrint = 0;
 
@@ -97,7 +94,7 @@ int escOut4 = 20;
 int led = 13; 
 
 /////////////////////////////////////////////////////////
-// PWM Variables 
+// PULSE LENGTH AND PWM 
 /////////////////////////////////////////////////////////
 
  // Get maximum value for selected PWM resolution (100% Duty)
@@ -121,27 +118,29 @@ int led = 13;
  int escPulse3PWM;
  int escPulse4PWM;
 
- /////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////
 // IMU 
 /////////////////////////////////////////////////////////
 // The IMU is used to get rates and angles
 
-// Angles and Rates
- float pitch = 10;
- float roll = 10;
+// Variables 
+ float pitch;
+ float roll;
  float yaw;
- float pitch_rate, roll_rate, yaw_rate;
+
+ float pitch_prev;
+ float roll_prev;
+ float yaw_prev;
+
+ float pitch_rate;
+ float roll_rate;
+ float yaw_rate;
+
 
  // Offsets
- float offsetPitch = 0;
- float offsetRoll = 0;
- float offsetYaw = 0;
-
- float offsetPitch_rate = 0;
- float offsetRoll_rate = 0;
- float offsetYaw_rate = 0;
-
-
+ float offsetPitch_rate;
+ float offsetRoll_rate;
+ float offsetYaw_rate;
 
 Adafruit_FXAS21002C gyro = Adafruit_FXAS21002C(0x0021002C);
 Adafruit_FXOS8700 accelmag = Adafruit_FXOS8700(0x8700A, 0x8700B);
@@ -204,27 +203,28 @@ Adafruit_FXOS8700 accelmag = Adafruit_FXOS8700(0x8700A, 0x8700B);
 				  accel_event.acceleration.x, accel_event.acceleration.y, accel_event.acceleration.z,
 				  mx, my, mz);
 
-	 // Degrees  
-	 pitch = filter.getRoll() - offsetPitch;
-	 roll = filter.getPitch() - offsetRoll;
-	 yaw = -1*filter.getYaw() - offsetYaw; 						// negative sign added to correct sign convention
+	 // Degrees (LOOKS LIKE WE WON'T NEED OFFSET FOR ANGLES)
+	 pitch = filter.getRoll();
+	 roll = filter.getPitch();
+	 yaw = -1*filter.getYaw(); 										// negative sign added to correct sign convention
 
 	 // Degrees per second 
 	 pitch_rate = gyro_event.gyro.x*(180/3.14) - offsetPitch_rate;
 	 roll_rate = gyro_event.gyro.y*(180/3.14) - offsetRoll_rate;
 	 yaw_rate = -1*gyro_event.gyro.z*(180/3.14) - offsetYaw_rate;    // negative sign added to correct sign convention
+
 }
 
-// Zero Readings 
+//////////////////////////////////////////////////////////
+// IMU CALIBRATION
+/////////////////////////////////////////////////////////
+// Zero the angular rates
 
 // Variables
-float sumPitch = 0;
-float sumRoll = 0;
-int sumYaw = 0;
 
-float sumPitch_rate = 0;
-float sumRoll_rate = 0;
-float sumYaw_rate = 0;
+float sumPitch_rate;
+float sumRoll_rate;
+float sumYaw_rate;
 
 void calIMU()
 {
@@ -235,11 +235,6 @@ void calIMU()
 			// Grab angles
 			getIMU();
 
-			// Sum angles
-			sumPitch += pitch;
-			sumRoll += roll;
-			sumYaw += yaw;
-
 			// Sum rates
 			sumPitch_rate += pitch_rate;
 			sumRoll_rate += roll_rate;
@@ -248,14 +243,10 @@ void calIMU()
 		}
 	}
 
-	// Calculate offsets
-	offsetPitch = sumPitch/2000;
-	offsetRoll = sumRoll/2000;
-	offsetYaw = sumYaw/2000;
-
-	offsetPitch_rate = sumPitch/2000;
-	offsetRoll_rate = sumRoll/2000;
-	offsetYaw_rate = sumYaw/2000;
+	// Calculate Angular Rate offsets
+	offsetPitch_rate = sumPitch_rate/2000;
+	offsetRoll_rate = sumRoll_rate/2000;
+	offsetYaw_rate = sumYaw_rate/2000;
 	
 }
 
@@ -274,7 +265,7 @@ void calIMU()
  unsigned long prev4 = 0;
  volatile unsigned int yaw_ratePulse = 1500;
  unsigned long prev5 = 0;
- volatile unsigned int delta5 = 1500;		// switch variable name to activate motors....... 
+ volatile unsigned int activateMotor = 1500;
 
  // Get pulse length 
 
@@ -329,10 +320,9 @@ void ch5Int()
 	prev5 = elapsedTime;
    }
    else{
-	delta5 = elapsedTime - prev5;
+	activateMotor = elapsedTime - prev5;
    }
 }
-
 
 
 /////////////////////////////////////////////////////////
@@ -388,18 +378,18 @@ void scalePulse()
 }
 
 /////////////////////////////////////////////////////////
-// INPUT  
+// INPUT  (BANDWIDTH IS 40 INSTEAD OF 16)
 /////////////////////////////////////////////////////////
 // Calculate the input signal needed to be sent the the PID function
 
 // Variables
 
 // Pitch
-int autoPitch = 0; 
+int autoPitch; 
 int inputPitch;
 
 // Roll 
-int autoRoll = 0;
+int autoRoll;
 int inputRoll;
 
 // Yaw
@@ -442,7 +432,7 @@ void getInput()
 	// Yaw bandwidth of 16
 	if(yaw_ratePulse > 1508)
 	{
-		inputYaw = yaw_ratePulse - 1508 ;
+		inputYaw = yaw_ratePulse - 1508;
 	}
 
 	else if(yaw_ratePulse < 1492)
@@ -485,9 +475,10 @@ void getInput()
 int errorPitch; 
 int pitchPulse;
 int last_errorPitch;
+int pid_max_pitch = 300;
 float Ipitch;
 
-int pPitch = 4;
+int pPitch = 2;
 int dPitch = 18;
 int iPitch = .02;
 
@@ -495,6 +486,7 @@ int iPitch = .02;
 int errorRoll; 
 int rollPulse;
 int last_errorRoll;
+int pid_max_roll = 300;
 int Iroll;
 
 int pRoll = pPitch;
@@ -505,14 +497,12 @@ int iRoll = iPitch;
 int errorYaw; 
 int yawPulse;
 int last_errorYaw;
+int pid_max_yaw = 300;
 int Iyaw;
 
 int pYaw = 4;
 int dYaw = 0;
 int iYaw = 0.02;
-
-
-
 
 void getPID()
 {
@@ -523,11 +513,34 @@ void getPID()
 	pitchPulse = pPitch*errorPitch + dPitch*(errorPitch - last_errorPitch) + Ipitch;
 	last_errorPitch = errorPitch; 
 
+	// Bound output 
+	if( pitchPulse > pid_max_pitch)
+	{
+		pitchPulse = pid_max_pitch;
+	}
+
+	if( pitchPulse < -pid_max_pitch )
+	{
+		pitchPulse = -pid_max_pitch;
+	}
+
+
 	// Roll 
 	errorRoll = inputRoll - roll_rate;
 	Iroll += iRoll*errorRoll;
 	rollPulse = pRoll*errorRoll + dRoll*(errorRoll - last_errorRoll) + Iroll;
 	last_errorRoll = errorRoll;
+
+	// Bound output 
+	if( rollPulse > pid_max_roll)
+	{
+		rollPulse = pid_max_roll;
+	}
+
+	if( rollPulse < -pid_max_roll )
+	{
+		rollPulse = -pid_max_roll;
+	}
 
 
 	// Yaw
@@ -536,6 +549,87 @@ void getPID()
 	yawPulse = pYaw*errorYaw +dYaw*(errorYaw - last_errorYaw) + Iyaw;
 	last_errorYaw = errorYaw;
 
+	// Bound output 
+	if( yawPulse > pid_max_yaw)
+	{
+		yawPulse = pid_max_yaw;
+	}
+
+	if( yawPulse < -pid_max_yaw )
+	{
+		yawPulse = -pid_max_yaw;
+	}
+
+	// Calculate pulses to motors
+	escPulse1 = throttle_Pulse - rollPulse + pitchPulse + yawPulse;
+	escPulse2 = throttle_Pulse - rollPulse - pitchPulse - yawPulse;
+	escPulse3 = throttle_Pulse + rollPulse - pitchPulse + yawPulse; 
+	escPulse4 = throttle_Pulse + rollPulse + pitchPulse - yawPulse;
+
+}
+
+/////////////////////////////////////////////////////////
+// MAX PULSE CHANGE (CURRENTLY NOT WORKING)
+/////////////////////////////////////////////////////////
+// If the pulses to the motors change to fast the motors don't work
+// and we get funny noises 
+
+// Variables 
+int escPulse1_prev = 1100;
+int escPulse2_prev = 1100;
+int escPulse3_prev = 1100;
+int escPulse4_prev = 1100;
+
+// With have to adjust this variable for a smooth transition 
+int maxDelta = 700;
+
+void maxPulseChange()
+{
+	// Motor 1 
+	if(escPulse1 - escPulse1_prev > maxDelta)
+	{
+		escPulse1 = escPulse1_prev + maxDelta;
+	}
+	if(escPulse1 - escPulse1_prev < -maxDelta)
+	{
+		escPulse1 = escPulse1_prev - maxDelta;
+	} 
+;
+	// Motor 2 
+	if(escPulse2 - escPulse2_prev > maxDelta)
+	{
+		escPulse2 = escPulse2_prev + maxDelta;
+	}
+	if(escPulse2 - escPulse2_prev < -maxDelta)
+	{
+		escPulse2 = escPulse2_prev - maxDelta;
+	} 
+
+	// Motor 3 
+	if(escPulse3 - escPulse3_prev > maxDelta)
+	{
+		escPulse3 = escPulse3_prev + maxDelta;
+	}
+	if(escPulse3 - escPulse3_prev < -maxDelta)
+	{
+		escPulse3 = escPulse3_prev - maxDelta;
+	} 
+
+	// Motor 4 
+	if(escPulse4 - escPulse4_prev > maxDelta)
+	{
+		escPulse4 = escPulse4_prev + maxDelta;
+	}
+	if(escPulse4 - escPulse4_prev < -maxDelta)
+	{
+		escPulse4 = escPulse4_prev - maxDelta;
+	} 
+
+	// Save current pulse
+	escPulse1_prev = escPulse1;
+	escPulse2_prev = escPulse2;
+	escPulse3_prev = escPulse3;
+	escPulse4_prev = escPulse4;
 }
 
 /////////////////////////////////////////////////////////
@@ -543,12 +637,11 @@ void getPID()
 /////////////////////////////////////////////////////////
 // This is a safey feature in the code so the pulses sent to motors won't exced the
 // the max of min of the motors. In this case the min of the motors is 1000 while the
-// max is 2000. 
+// max is 2000. Also will activate the motors.
 
 // Variables 
 int minPulse = 1100;
 int maxPulse = 2000;
-
 
 void boundPulse()
 {
@@ -593,7 +686,43 @@ void boundPulse()
 	{
 		escPulse4 = minPulse;
 	}
+
+	// Start/Kill MOTORS
+	if(activateMotor < 1100)
+	{
+		escPulse1 = 1000;
+		escPulse2 = 1000;
+		escPulse3 = 1000;
+		escPulse4 = 1000;
+	}
 }
+
+
+/////////////////////////////////////////////////////////
+// CONVERT PULSE TO PWM 
+/////////////////////////////////////////////////////////
+// This function converts the calculate pulse to the PWM signal.
+// Then the PWM signal is written to the motors
+
+void pulsetoPWM()
+{
+	// Convert Mircosecond time to PWM pulse for motors(CREATE NEW FUNCTION WILL NEXT LINES)
+	escPulse1PWM = escPulse1*pwmMax/escPulseTime;
+	escPulse2PWM = escPulse2*pwmMax/escPulseTime;
+	escPulse3PWM = escPulse3*pwmMax/escPulseTime;
+	escPulse4PWM = escPulse4*pwmMax/escPulseTime;
+
+	// Send PWM pulse to motors
+	analogWrite(escOut1, escPulse1PWM);
+  	analogWrite(escOut2, escPulse2PWM);
+  	analogWrite(escOut3, escPulse3PWM);
+  	analogWrite(escOut4, escPulse4PWM);
+}
+
+/////////////////////////////////////////////////////////
+// BINK
+/////////////////////////////////////////////////////////
+// Blinks the built in led
 
 void blinkLed()
 {
@@ -602,7 +731,6 @@ void blinkLed()
 	digitalWrite(led,LOW);	
 	delay(250);
 }
-
 
 /////////////////////////////////////////////////////////
 // SETUP
@@ -644,13 +772,12 @@ void setup()
 	attachInterrupt(ch5,ch5Int,CHANGE);
 
 	// Make sure delta five is in low position otherwise motor will fire off at start up 
-	Serial.println(delta5);
-	while(delta5 > 1010)
+	Serial.println(activateMotor);
+	while(activateMotor > 1010)
 	{
 		Serial.println("Turn left controller nobe to 1000");
 		blinkLed();
 	}
-
 
 	// Check to see if IMU is active 
 
@@ -671,34 +798,12 @@ void setup()
 	// Start IMU filter for desired frequency
 	filter.begin(updateFreq);
 
-	// Wait for IMU to steady 
-	// Serial.println("Steady IMU");
-	// digitalWrite(led,HIGH);
+	// Calibrate IMU to find angular rate offsets
+	blinkLed();
+	calIMU();
+	blinkLed();
 
-	// Wait for IMU to warm up
-	// for (int loop = 0; loop < 3000; loop++){
-	// 	if ((elapsedTime - lastUpdate) > updateTime)
-	// 	{
-	// 		getIMU();
-	// 	}
-	// }
-
-	// // Wait for values to settle
-	// while(pitch > 2 || pitch < -2 )
-	// {
-
-	// 	if ((elapsedTime - lastUpdate) > updateTime)
-	// 	{
-	// 		getIMU();
-	// 	}
-	// 	if ((elapsedTime - lastPrint) >= printTimer)
-	// 	{
-	// 		lastPrint = elapsedTime;
-	// 		Serial.println(pitch);
-	// 	}
-	// }
-	// Serial.println("Finished Steadying IMU");
-	// digitalWrite(led,LOW);
+	// Wait for angles to steady 
 
 	// Set up motors 
 	// All on Timer FTM0 -> pwmFreq
@@ -735,44 +840,24 @@ void loop()
 		// Get the rates and angles
 		getIMU();
 
-		// Scale the pulse from 1000-2000
-		//scalePulse(); //CURRENTLY DOES NOT WORK
+		// Scale the pulse from 1000-2000 (CURRENTLY DOES NOT WORK)
+		//scalePulse(); 
 
 		// Get the input pulse for the PID 
 		getInput();
 
-		// Get the PID corrections
+		// Get the PID corrections and calculate the motor pulses 
 		getPID();
 
-		// Calculate pulses to motors (ADD INTO PID FUNCTION)
-		escPulse1 = throttle_Pulse - rollPulse + pitchPulse + yawPulse;
-		escPulse2 = throttle_Pulse - rollPulse - pitchPulse - yawPulse;
-		escPulse3 = throttle_Pulse + rollPulse - pitchPulse + yawPulse; 
-		escPulse4 = throttle_Pulse + rollPulse + pitchPulse - yawPulse;
+		// Make sure pulse doesn't change too quickly (CURRENTLY DOES NOT WORK)
+		// maxPulseChange();
 
-		// Make sure pulse is in correct range 
+		// Make sure pulse is in correct range and kill or activate motors  
 		boundPulse();
 
-		// Start/Kill MOTORS
-		if(delta5 < 1100)
-		{
-			escPulse1 = 1000;
-			escPulse2 = 1000;
-			escPulse3 = 1000;
-			escPulse4 = 1000;
-		}
+		// Convert the Pulse to PWM in order to spin the motors 
+		pulsetoPWM();
 
-		// Convert Mircosecond time to PWM pulse for motors(CREATE NEW FUNCTION WILL NEXT LINES)
-		escPulse1PWM = escPulse1*pwmMax/escPulseTime;
-		escPulse2PWM = escPulse2*pwmMax/escPulseTime;
-		escPulse3PWM = escPulse3*pwmMax/escPulseTime;
-		escPulse4PWM = escPulse4*pwmMax/escPulseTime;
-
-		// Send PWM pulse to motors
-		analogWrite(escOut1, escPulse1PWM);
-  		analogWrite(escOut2, escPulse2PWM);
-  		analogWrite(escOut3, escPulse3PWM);
-  		analogWrite(escOut4, escPulse4PWM);
 	}	
 
 	// Check output variables
@@ -781,6 +866,8 @@ void loop()
 		if ((elapsedTime - lastPrint) >= printTimer)
 		{
 			lastPrint = elapsedTime;
+			Serial.println(pitch);
+			Serial.println(autoPitch);
 		}
 	}
 }
