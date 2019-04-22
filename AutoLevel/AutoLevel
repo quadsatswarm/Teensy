@@ -42,8 +42,7 @@
 
 // TODO'S 
 /* 4-12-19
- * 1. FIND OFFSETS OF ANGULAR RATES 
- * 2. ANGLES TAKE ABOUT 65 SECONDS TO STEADY 
+ * 1. CHECK TO MAKE SURE SETUP WORKS WITH NEW FUNCTIONS
 */ 
 
 /////////////////////////////////////////////////////////
@@ -378,7 +377,7 @@ void scalePulse()
 }
 
 /////////////////////////////////////////////////////////
-// INPUT  (BANDWIDTH IS 40 INSTEAD OF 16)
+// INPUT
 /////////////////////////////////////////////////////////
 // Calculate the input signal needed to be sent the the PID function
 
@@ -513,7 +512,7 @@ void getPID()
 	pitchPulse = pPitch*errorPitch + dPitch*(errorPitch - last_errorPitch) + Ipitch;
 	last_errorPitch = errorPitch; 
 
-	// Bound output 
+	// Bound PID Pitch output
 	if( pitchPulse > pid_max_pitch)
 	{
 		pitchPulse = pid_max_pitch;
@@ -531,7 +530,7 @@ void getPID()
 	rollPulse = pRoll*errorRoll + dRoll*(errorRoll - last_errorRoll) + Iroll;
 	last_errorRoll = errorRoll;
 
-	// Bound output 
+	// Bound PID Roll output 
 	if( rollPulse > pid_max_roll)
 	{
 		rollPulse = pid_max_roll;
@@ -549,7 +548,7 @@ void getPID()
 	yawPulse = pYaw*errorYaw +dYaw*(errorYaw - last_errorYaw) + Iyaw;
 	last_errorYaw = errorYaw;
 
-	// Bound output 
+	// Bound PID YAW output  
 	if( yawPulse > pid_max_yaw)
 	{
 		yawPulse = pid_max_yaw;
@@ -569,78 +568,18 @@ void getPID()
 }
 
 /////////////////////////////////////////////////////////
-// MAX PULSE CHANGE (CURRENTLY NOT WORKING)
-/////////////////////////////////////////////////////////
-// If the pulses to the motors change to fast the motors don't work
-// and we get funny noises 
-
-// Variables 
-int escPulse1_prev = 1100;
-int escPulse2_prev = 1100;
-int escPulse3_prev = 1100;
-int escPulse4_prev = 1100;
-
-// With have to adjust this variable for a smooth transition 
-int maxDelta = 700;
-
-void maxPulseChange()
-{
-	// Motor 1 
-	if(escPulse1 - escPulse1_prev > maxDelta)
-	{
-		escPulse1 = escPulse1_prev + maxDelta;
-	}
-	if(escPulse1 - escPulse1_prev < -maxDelta)
-	{
-		escPulse1 = escPulse1_prev - maxDelta;
-	} 
-;
-	// Motor 2 
-	if(escPulse2 - escPulse2_prev > maxDelta)
-	{
-		escPulse2 = escPulse2_prev + maxDelta;
-	}
-	if(escPulse2 - escPulse2_prev < -maxDelta)
-	{
-		escPulse2 = escPulse2_prev - maxDelta;
-	} 
-
-	// Motor 3 
-	if(escPulse3 - escPulse3_prev > maxDelta)
-	{
-		escPulse3 = escPulse3_prev + maxDelta;
-	}
-	if(escPulse3 - escPulse3_prev < -maxDelta)
-	{
-		escPulse3 = escPulse3_prev - maxDelta;
-	} 
-
-	// Motor 4 
-	if(escPulse4 - escPulse4_prev > maxDelta)
-	{
-		escPulse4 = escPulse4_prev + maxDelta;
-	}
-	if(escPulse4 - escPulse4_prev < -maxDelta)
-	{
-		escPulse4 = escPulse4_prev - maxDelta;
-	} 
-
-	// Save current pulse
-	escPulse1_prev = escPulse1;
-	escPulse2_prev = escPulse2;
-	escPulse3_prev = escPulse3;
-	escPulse4_prev = escPulse4;
-}
-
-/////////////////////////////////////////////////////////
 // BOUND PULSE
 /////////////////////////////////////////////////////////
 // This is a safey feature in the code so the pulses sent to motors won't exced the
-// the max of min of the motors. In this case the min of the motors is 1000 while the
+// the max or min of the motors. In this case the min of the motors is 1000 while the
 // max is 2000. Also will activate the motors.
 
 // Variables 
+
+// idle motors 
 int minPulse = 1100;
+
+// max motors
 int maxPulse = 2000;
 
 void boundPulse()
@@ -733,6 +672,98 @@ void blinkLed()
 }
 
 /////////////////////////////////////////////////////////
+// CONTROLLER CHECK 
+/////////////////////////////////////////////////////////
+// Make sure controller is in the right position
+void controllerCheck()
+{
+
+	while(activateMotor > 1010)
+	{
+		Serial.println("Turn left controller nobe to 1000");
+		blinkLed();
+	}
+
+	while(throttle_Pulse > 1010)
+	{
+		Serial.println("Lower throttle pulse to 1000");
+		blinkLed();
+	}
+
+	while(yaw_ratePulse < 1490 || yaw_ratePulse > 1510)
+	{
+		Serial.println("Move yaw stick to center");
+		blinkLed();
+	}
+
+	while(roll_ratePulse < 1490 || roll_ratePulse > 1510)
+	{
+		Serial.println("Move roll stick to center");
+		blinkLed();
+	}
+
+	while(pitch_ratePulse < 1490 || pitch_ratePulse > 1510)
+	{
+		Serial.println("Move pitch stick to center");
+		blinkLed();
+	}
+}
+
+/////////////////////////////////////////////////////////
+// IMU INTILIZATION
+/////////////////////////////////////////////////////////
+// Check to see if IMU is active and calibrate 
+
+void imuIntilization()
+{
+
+	// Gyro
+	while(!gyro.begin(GYRO_RANGE_500DPS))
+	{
+		Serial.println("Ooops, no gyro detected ... Check your wiring!");
+		blinkLed();
+	}
+
+	// Accellerometer
+	while(!accelmag.begin(ACCEL_RANGE_4G))
+	{
+		Serial.println("Ooops, no FXOS8700 detected ... Check your wiring!");
+		blinkLed();
+	}
+
+	// Start IMU filter for desired frequency
+	filter.begin(updateFreq);
+
+	// Calibrate IMU to find angular rate offsets
+	blinkLed();
+	calIMU();
+	blinkLed();
+}
+
+
+/////////////////////////////////////////////////////////
+// ESC INTILIZATION
+/////////////////////////////////////////////////////////
+// Set motors so they are ready to run
+
+void escInitialize()
+{
+	// All on Timer FTM0 -> pwmFreq
+  	analogWriteFrequency(escOut1, pwmFreq);
+
+  	// Set PWM resolution
+  	analogWriteResolution(pwmRes);
+	
+	// Initialize ESCs
+  	analogWrite(escOut1, escInit);
+  	analogWrite(escOut2, escInit);
+  	analogWrite(escOut3, escInit);
+  	analogWrite(escOut4, escInit);
+  	delay(5000);
+	Serial.println("ESC Initialization Completed");	
+}
+
+/////////////////////////////////////////////////////////
 // SETUP
 /////////////////////////////////////////////////////////
 // Get ready to fly
@@ -771,54 +802,14 @@ void setup()
   	attachInterrupt(ch4,ch4Int,CHANGE);
 	attachInterrupt(ch5,ch5Int,CHANGE);
 
-	// Make sure delta five is in low position otherwise motor will fire off at start up 
-	Serial.println(activateMotor);
-	while(activateMotor > 1010)
-	{
-		Serial.println("Turn left controller nobe to 1000");
-		blinkLed();
-	}
+	// Make sure controller is in the right starting position
+	controllerCheck();
 
-	// Check to see if IMU is active 
+	// Intilizate the IMU 
+	imuIntilization();
 
-	// Gyro
-	while(!gyro.begin(GYRO_RANGE_500DPS))
-	{
-		Serial.println("Ooops, no gyro detected ... Check your wiring!");
-		blinkLed();
-	}
-
-	// Accellerometer
-	while(!accelmag.begin(ACCEL_RANGE_4G))
-	{
-		Serial.println("Ooops, no FXOS8700 detected ... Check your wiring!");
-		blinkLed();
-	}
-
-	// Start IMU filter for desired frequency
-	filter.begin(updateFreq);
-
-	// Calibrate IMU to find angular rate offsets
-	blinkLed();
-	calIMU();
-	blinkLed();
-
-	// Wait for angles to steady 
-
-	// Set up motors 
-	// All on Timer FTM0 -> pwmFreq
-  	analogWriteFrequency(escOut1, pwmFreq);
-
-  	// Set PWM resolution
-  	analogWriteResolution(pwmRes);
-	
-	// Initialize ESCs
-  	analogWrite(escOut1, escInit);
-  	analogWrite(escOut2, escInit);
-  	analogWrite(escOut3, escInit);
-  	analogWrite(escOut4, escInit);
-  	delay(5000);
-	Serial.println("ESC Initialization Completed");	
+	// Initialize esc
+	escInitialize();
 
 	// Setup completed 
 	digitalWrite(led,HIGH);
@@ -848,9 +839,6 @@ void loop()
 
 		// Get the PID corrections and calculate the motor pulses 
 		getPID();
-
-		// Make sure pulse doesn't change too quickly (CURRENTLY DOES NOT WORK)
-		// maxPulseChange();
 
 		// Make sure pulse is in correct range and kill or activate motors  
 		boundPulse();
