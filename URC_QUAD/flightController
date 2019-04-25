@@ -624,34 +624,15 @@ void blinkLed()
 // Make sure controller is in the right position
 void controllerCheck()
 {
-
-	while(activateMotor > 1010)
+	while(activateMotor > 1100)
 	{
 		Serial.println("Turn left controller nobe to 1000");
 		blinkLed();
 	}
 
-	while(throttle_Pulse > 1010)
+	while(throttle_Pulse > 1100)
 	{
 		Serial.println("Lower throttle pulse to 1000");
-		blinkLed();
-	}
-
-	// while(yaw_ratePulse < 1490 || yaw_ratePulse > 1510)
-	// {
-	// 	Serial.println("Move yaw stick to center");
-	// 	blinkLed();
-	// }
-
-	while(roll_ratePulse < 1490 || roll_ratePulse > 1510)
-	{
-		Serial.println("Move roll stick to center");
-		blinkLed();
-	}
-
-	while(pitch_ratePulse < 1490 || pitch_ratePulse > 1510)
-	{
-		Serial.println("Move pitch stick to center");
 		blinkLed();
 	}
 }
